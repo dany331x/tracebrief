@@ -228,8 +228,8 @@ export const indexBundle = (bundle) => {
     if (typeof record?.evidence_id === "string") records.set(record.evidence_id, record);
   }
   const unknowns = new Map();
-  for (const unknown of asArray(bundle?.unknowns)) {
-    if (typeof unknown?.unknown_id === "string") unknowns.set(unknown.unknown_id, unknown);
+  for (const unknown of residualUnknownHeads(bundle)) {
+    unknowns.set(unknown.unknown_id, unknown);
   }
   const artifacts = new Map();
   for (const artifact of asArray(bundle?.artifacts)) {
@@ -239,9 +239,30 @@ export const indexBundle = (bundle) => {
   return { records, unknowns, artifacts };
 };
 
-/** Records whose status still leaves the question open. */
+/**
+ * Reduce the unknown history to one head per `unknown_id`.
+ *
+ * A REA bundle keeps every revision of a residual unknown, so the same id can
+ * appear as `open` and again as `resolved`. Only the highest revision is the
+ * current state: treating the stale `open` revision as live would make
+ * TraceBrief demand that a report carry a question that has already been closed.
+ */
+export const residualUnknownHeads = (bundle) => {
+  const heads = new Map();
+  for (const unknown of asArray(bundle?.unknowns)) {
+    const id = unknown?.unknown_id;
+    if (typeof id !== "string") continue;
+    const current = heads.get(id);
+    const revision = Number.isInteger(unknown.revision) ? unknown.revision : 0;
+    const currentRevision = current && Number.isInteger(current.revision) ? current.revision : 0;
+    if (!current || revision >= currentRevision) heads.set(id, unknown);
+  }
+  return [...heads.values()];
+};
+
+/** The current, unresolved residual unknowns, one per id. */
 export const openUnknowns = (bundle) =>
-  asArray(bundle?.unknowns).filter((unknown) => unknown?.status !== "resolved");
+  residualUnknownHeads(bundle).filter((unknown) => unknown?.status !== "resolved");
 
 const issue = (level, code, message, path, detail) => ({ level, code, message, path, ...(detail ? { detail } : {}) });
 

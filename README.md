@@ -257,27 +257,41 @@ evidence still passes. It also does not render Markdown itself, so "cannot
 inject" is asserted as a line-level property of the output, not by round-tripping
 a CommonMark parser. Both limits are stated here rather than implied away.
 
-## Sample
+## Samples
 
-`reports/clipnote-search.md` is generated from real REA output:
+Both samples are generated from real REA 6.0.0 output, not from synthetic data.
+
+**`reports/clipnote-search.md`** — a feature trace through an Electron app.
 
 - target: `fixtures/clipnote`, a small Electron fixture application
-- evidence: `fixtures/clipnote-bundle.json`, exported from a live REA 6.0.0
-  session (3 records: `analyze_javascript_application`,
-  `trace_application_feature`, `trace_javascript_semantics`)
+- evidence: `fixtures/clipnote-bundle.json` (2.3 MB export; 3 records —
+  `analyze_javascript_application`, `trace_application_feature`,
+  `trace_javascript_semantics`)
 - claims: `fixtures/report.clipnote.json`
+- validates with 0 errors and 3 warnings, one of which says the TraceBrief render
+  command itself is not backed by REA evidence
 
-The sample validates with 0 errors and 3 warnings, one of which says the
-TraceBrief render command itself is not backed by REA evidence. It also
-demonstrates the tool working against its own author: two drafted claims were
-rejected as unsupported assertions about the application until they were
-reclassified as `analysis-coverage`, which is what they actually were.
+**`reports/clipnote-residual-unknowns.md`** — the same investigation's open questions.
 
-Environment note: this sample is static JavaScript analysis only. Hopper is
-macOS/Linux, and no Ghidra or IDA installation was configured, so the report
-makes no native claim. A second integration check against a real PE
-(`inspect_managed_artifact` on a Windows PowerShell assembly) was run during
-development to exercise different record shapes — `format: pe`, `file-offset`
+- evidence: `fixtures/clipnote-unknowns-bundle.json` (7 KB; 4 records from
+  `record_unknown` and `update_unknown`, plus 4 unknown-history entries)
+- claims: `fixtures/report.clipnote-unknowns.json`
+- validates with 0 errors and 3 warnings, including `target_digest_missing`
+- this sample exists because of a bug it found: a real REA bundle keeps the full
+  revision history of each residual unknown, so the same `unk_` id appears once
+  `open` and again `resolved`. TraceBrief now reduces `unknowns` to one head per
+  id before deciding what is open, and `test/real-unknowns.test.mjs` proves the
+  result is order-independent. Before that fix, a stale `open` revision could
+  make the tool demand that a report carry an already-closed question.
+
+It also demonstrates the tool working against its own author: two drafted claims
+in the first sample were rejected as unsupported assertions about the application
+until they were reclassified as `analysis-coverage`, which is what they were.
+
+Environment note: both samples are static analysis only. Hopper is macOS/Linux,
+and no Ghidra or IDA installation was configured here, so neither report makes a
+native claim. A managed PE (`inspect_managed_artifact`) was also exercised during
+development to cover a different record shape — `format: pe`, `file-offset`
 locations — and to confirm cross-artifact detection against a mixed bundle.
 
 ## Limitations

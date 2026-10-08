@@ -91,6 +91,22 @@ const MUTATIONS = [
     why: "stops checking relationship claims entirely",
   },
   {
+    id: "unknown-history-not-collapsed",
+    file: "src/bundle.mjs",
+    from: "    if (!current || revision >= currentRevision) heads.set(id, unknown);",
+    to: "    if (!current) heads.set(id, unknown);",
+    expect: "unknown history collapses to one head per id",
+    why: "keeps the first revision, so a stale open revision shadows a resolved head",
+  },
+  {
+    id: "open-unknowns-ignores-status",
+    file: "src/bundle.mjs",
+    from: "  residualUnknownHeads(bundle).filter((unknown) => unknown?.status !== \"resolved\");",
+    to: "  residualUnknownHeads(bundle);",
+    expect: "a resolved unknown is not reported as an open question",
+    why: "reports resolved unknowns as still open",
+  },
+  {
     id: "runtime-authority-check-removed",
     file: "src/rules.mjs",
     from: "RUNTIME_AUTHORITIES.includes(record.authority)",

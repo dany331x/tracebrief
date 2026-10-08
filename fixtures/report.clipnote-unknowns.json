@@ -1,0 +1,99 @@
+{
+  "schema": "tracebrief/report@1",
+  "bundle_digest": "a3e677001d985ace03d2b9d89400bd395296828d83721046d85f3e2519ab64b7",
+  "title": "What the ClipNote search investigation established, and what it did not",
+  "question": "After static analysis of the ClipNote search path, which questions are actually settled, and which remain open?",
+  "target": {
+    "name": "clipnote",
+    "version": "2.4.1",
+    "artifact_digest": null,
+    "format": "directory",
+    "architecture": null,
+    "local_path": "fixtures/clipnote"
+  },
+  "reproduction": {
+    "environment": [
+      "windows-x86_64",
+      "REA 6.0.0 (npx rea-agents@6.0.0 mcp)",
+      "No analysis engine configured: Hopper is unsupported on this host and neither Ghidra nor IDA was set, so every record here is static analysis or registry bookkeeping."
+    ],
+    "tool_versions": [
+      {
+        "name": "REA residual-unknown registry",
+        "version": "6.0.0",
+        "evidence_ids": ["ev_8c639fb17dfbeebc0d5284a5113c74041404dd6f04b8404f8c64d156a07c0e09"]
+      }
+    ],
+    "commands": [
+      {
+        "command": "record_unknown { question, severity, domain, required_authority }",
+        "purpose": "Record an unresolved question in REA so it cannot be silently dropped from the investigation",
+        "evidence_ids": [
+          "ev_8c639fb17dfbeebc0d5284a5113c74041404dd6f04b8404f8c64d156a07c0e09",
+          "ev_c0886c22b6c3eba615371501ee705abcbc5e8388bdc25d23494a32552e62a687",
+          "ev_307880359d4beba957a16d8c9af63913a1278c0f4ebb6f80257a6846bd1388e7"
+        ]
+      },
+      {
+        "command": "update_unknown { status: resolved, resolution: { disposition: out-of-scope } }",
+        "purpose": "Close a question as out of scope, with a rationale and a new revision",
+        "evidence_ids": ["ev_c36dec3cdbe1b30f4444aa885a66ef26fa3338d1295f470c2af6ea3c68be5fbf"]
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "f-unknowns-are-bookkept",
+      "statement": "REA retained three residual unknowns for this investigation: two remain open and one was closed as out of scope, and the bundle keeps the full revision history of each.",
+      "kind": "observed",
+      "claim_type": "structure",
+      "evidence_ids": [
+        "ev_8c639fb17dfbeebc0d5284a5113c74041404dd6f04b8404f8c64d156a07c0e09",
+        "ev_c0886c22b6c3eba615371501ee705abcbc5e8388bdc25d23494a32552e62a687",
+        "ev_307880359d4beba957a16d8c9af63913a1278c0f4ebb6f80257a6846bd1388e7"
+      ],
+      "limitations": [
+        "Artifact identity is unavailable for this observation.",
+        "Registry mutation evidence records analyst intent, not proof of the answer."
+      ]
+    },
+    {
+      "id": "f-static-cannot-close-runtime-questions",
+      "statement": "Both remaining open questions require controlled-replay authority, and no record in this bundle carries it, so no amount of further static analysis on this host can close them.",
+      "kind": "derived",
+      "claim_type": "analysis-coverage",
+      "evidence_ids": [
+        "ev_8c639fb17dfbeebc0d5284a5113c74041404dd6f04b8404f8c64d156a07c0e09",
+        "ev_c0886c22b6c3eba615371501ee705abcbc5e8388bdc25d23494a32552e62a687"
+      ],
+      "limitations": [
+        "Artifact identity is unavailable for this observation.",
+        "Registry mutation evidence records analyst intent, not proof of the answer."
+      ]
+    }
+  ],
+  "relationships": [],
+  "open_questions": [
+    {
+      "id": "q-runtime-order",
+      "question": "Does the ClipNote renderer reach the main process in this order at runtime, and does the search handler run before the window is shown?",
+      "status": "open",
+      "unknown_id": "unk_2fece72eef45972af3918adc9a78f9dbf6f7ad8b26143ad184a68e5c9c811f30",
+      "evidence_ids": []
+    },
+    {
+      "id": "q-context-isolation",
+      "question": "Are contextIsolation and nodeIntegration enforced by the shipped runtime, or only declared in the window options text?",
+      "status": "open",
+      "unknown_id": "unk_f9b1ddb7fd9340265a8cfcb053e386d712ae7fada843f553b46aba5c636e9263",
+      "evidence_ids": []
+    }
+  ],
+  "summary": {
+    "established": ["f-unknowns-are-bookkept", "f-static-cannot-close-runtime-questions"],
+    "not_established": [
+      "Does the ClipNote renderer reach the main process in this order at runtime, and does the search handler run before the window is shown?",
+      "Are contextIsolation and nodeIntegration enforced by the shipped runtime, or only declared in the window options text?"
+    ]
+  }
+}
