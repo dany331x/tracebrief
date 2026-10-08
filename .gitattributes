@@ -1,0 +1,8 @@
+# Normalize line endings in the repository.
+# The working tree stays LF on every platform so rendered reports stay
+# byte-identical and diffs are clean on Linux and macOS.
+* text=auto eol=lf
+
+# The evidence bundle is generated data: keep it diffable as text is not useful,
+# and its digest is recorded in the report.
+fixtures/*.json -diff

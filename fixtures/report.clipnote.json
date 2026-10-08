@@ -1,0 +1,173 @@
+{
+  "schema": "tracebrief/report@1",
+  "title": "How ClipNote search travels from the renderer to the main process",
+  "question": "In the shipped ClipNote Electron application, how does a query typed in the renderer reach the main process, and which parts of that path are established statically versus still unproven at runtime?",
+  "target": {
+    "name": "clipnote",
+    "version": "2.4.1",
+    "artifact_digest": "8ff2d109f779756047f9c1f2786ab05adaa5d6dcb4f82871a6032d2663c84d46",
+    "format": "directory",
+    "architecture": null,
+    "local_path": "fixtures/clipnote"
+  },
+  "reproduction": {
+    "environment": [
+      "windows-x86_64",
+      "Node.js v24.21.0",
+      "REA 6.0.0 (npx rea-agents@6.0.0 mcp)",
+      "No analysis engine configured: Hopper is unsupported on this host and neither Ghidra nor IDA was set, so every record below is static JavaScript analysis."
+    ],
+    "tool_versions": [
+      {
+        "name": "REA JavaScript application analyzer",
+        "version": "1",
+        "evidence_ids": ["ev_b318dce1e595a404df70e1f22c8d16d8e1216f409f20aeeacf6ecc3bb4220779"]
+      },
+      {
+        "name": "REA JavaScript application workflows",
+        "version": "1",
+        "evidence_ids": ["ev_467e4f47ae59fc38f7099a3ca288d90ca770a6c28cfc36290f83701a529008c8"]
+      }
+    ],
+    "commands": [
+      {
+        "command": "analyze_javascript_application { input_path: \"fixtures/clipnote\" }",
+        "purpose": "Build the application graph, module inventory and Electron boundary summary",
+        "evidence_ids": ["ev_b318dce1e595a404df70e1f22c8d16d8e1216f409f20aeeacf6ecc3bb4220779"]
+      },
+      {
+        "command": "trace_application_feature { seed: { kind: \"channel\", value: \"note:search\", match: \"exact\" }, direction: \"both\" }",
+        "purpose": "Trace the literal IPC channel in both directions from provenance",
+        "evidence_ids": ["ev_467e4f47ae59fc38f7099a3ca288d90ca770a6c28cfc36290f83701a529008c8"]
+      },
+      {
+        "command": "trace_javascript_semantics { seed: { kind: \"literal\", value: \"note:search\" }, direction: \"backward-provenance\" }",
+        "purpose": "Attempt a semantic-node trace of the same literal; returned zero seed matches and coverage status partial",
+        "evidence_ids": ["ev_d8fd194032b8c98e1b8d15ea25e0fc4f624827da075bce02ef8197c611d263ab"]
+      },
+      {
+        "command": "node bin/tracebrief.mjs render --report fixtures/report.clipnote.json --bundle fixtures/clipnote-bundle.json",
+        "purpose": "Regenerate this Markdown file from the authored claims",
+        "evidence_ids": []
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "f-ipc-channels-paired",
+      "statement": "REA recorded three literal IPC channels, three renderer transmissions and three main-process handlers, and paired all three renderer transmissions with a handler; no unpaired literal renderer transmissions were reported.",
+      "kind": "derived",
+      "claim_type": "structure",
+      "evidence_ids": ["ev_b318dce1e595a404df70e1f22c8d16d8e1216f409f20aeeacf6ecc3bb4220779"],
+      "limitations": [
+        "Electron relationships are derived from inert syntax; runtime registration, reachability, defaults, and enforcement remain unproven.",
+        "JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed."
+      ]
+    },
+    {
+      "id": "f-context-bridge-surface",
+      "statement": "The preload entrypoint exposes three members through one context bridge, and three explicit web preferences were recorded, including contextIsolation and nodeIntegration.",
+      "kind": "derived",
+      "claim_type": "structure",
+      "evidence_ids": ["ev_b318dce1e595a404df70e1f22c8d16d8e1216f409f20aeeacf6ecc3bb4220779"],
+      "limitations": [
+        "Electron relationships are derived from inert syntax; runtime registration, reachability, defaults, and enforcement remain unproven."
+      ]
+    },
+    {
+      "id": "f-no-sender-validation-observed",
+      "statement": "REA recorded zero sender-validation observations across the inventoried IPC surface. This is an absence in static analysis and is not evidence that no validation exists at runtime.",
+      "kind": "derived",
+      "claim_type": "structure",
+      "evidence_ids": ["ev_b318dce1e595a404df70e1f22c8d16d8e1216f409f20aeeacf6ecc3bb4220779"],
+      "limitations": [
+        "Electron relationships are derived from inert syntax; runtime registration, reachability, defaults, and enforcement remain unproven."
+      ]
+    },
+    {
+      "id": "f-inventory-complete",
+      "statement": "The analysis parsed eight JavaScript files, visited 959 AST nodes and produced 44 findings with zero parse failures, zero invalid UTF-8 files and zero truncated scopes.",
+      "kind": "derived",
+      "claim_type": "structure",
+      "evidence_ids": ["ev_b318dce1e595a404df70e1f22c8d16d8e1216f409f20aeeacf6ecc3bb4220779"],
+      "limitations": [
+        "Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated."
+      ]
+    },
+    {
+      "id": "f-semantic-seed-unresolved",
+      "statement": "A semantic trace seeded on the same literal channel matched zero seed nodes and reported coverage status partial, so the semantic graph contributed no nodes for this question.",
+      "kind": "observed",
+      "claim_type": "analysis-coverage",
+      "evidence_ids": ["ev_d8fd194032b8c98e1b8d15ea25e0fc4f624827da075bce02ef8197c611d263ab"],
+      "limitations": [
+        "Artifact identity is unavailable for this observation."
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "id": "r-search-channel-trace",
+      "statement": "Tracing the literal channel note:search with one seed match expanded to 49 nodes and 76 relations, of which 59 facts were observed and 70 were inferred candidates, with coverage complete-within-source.",
+      "kind": "inferred",
+      "claim_type": "structure",
+      "evidence_ids": [
+        "ev_467e4f47ae59fc38f7099a3ca288d90ca770a6c28cfc36290f83701a529008c8",
+        "ev_b318dce1e595a404df70e1f22c8d16d8e1216f409f20aeeacf6ecc3bb4220779"
+      ],
+      "limitations": [
+        "A trace reports graph relationships, not proof that code executed or that a feature is reachable in every state.",
+        "Artifact identity is unavailable for this observation."
+      ]
+    },
+    {
+      "id": "r-provenance-chain",
+      "statement": "Both workflow records link back to the application analysis record through evidence_links, so the trace and semantic records are derived from the same inventoried artifact rather than from separate targets.",
+      "kind": "observed",
+      "claim_type": "analysis-coverage",
+      "evidence_ids": [
+        "ev_467e4f47ae59fc38f7099a3ca288d90ca770a6c28cfc36290f83701a529008c8",
+        "ev_d8fd194032b8c98e1b8d15ea25e0fc4f624827da075bce02ef8197c611d263ab"
+      ],
+      "limitations": [
+        "Artifact identity is unavailable for this observation."
+      ]
+    }
+  ],
+  "open_questions": [
+    {
+      "id": "q-runtime-order",
+      "question": "Does the renderer actually reach the main process in this order, and does the handler run before the window is shown? No runtime or process capture was collected.",
+      "status": "open",
+      "evidence_ids": ["ev_467e4f47ae59fc38f7099a3ca288d90ca770a6c28cfc36290f83701a529008c8"]
+    },
+    {
+      "id": "q-context-isolation-enforced",
+      "question": "Are contextIsolation and nodeIntegration actually enforced by the shipped runtime, or only declared in the window options text?",
+      "status": "open",
+      "evidence_ids": ["ev_b318dce1e595a404df70e1f22c8d16d8e1216f409f20aeeacf6ecc3bb4220779"]
+    },
+    {
+      "id": "q-index-cache-and-ranking",
+      "question": "Does the search index reuse a cached index file, and is the ranking call in the index builder well formed? The static graph does not answer either question, and the argument shape looks inconsistent on manual reading.",
+      "status": "investigating",
+      "evidence_ids": []
+    }
+  ],
+  "summary": {
+    "established": [
+      "f-ipc-channels-paired",
+      "f-context-bridge-surface",
+      "f-inventory-complete",
+      "f-semantic-seed-unresolved",
+      "r-search-channel-trace",
+      "r-provenance-chain"
+    ],
+    "not_established": [
+      "Runtime execution order of the search request.",
+      "Enforcement of the declared context isolation settings.",
+      "Search index caching behaviour and ranking correctness.",
+      "Whether any IPC sender validation occurs at runtime."
+    ]
+  }
+}

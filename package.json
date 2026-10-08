@@ -1,0 +1,26 @@
+{
+  "name": "tracebrief",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Evidence-first reverse-engineering reports built on REA Evidence bundles",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "bin": {
+    "tracebrief": "bin/tracebrief.mjs"
+  },
+  "scripts": {
+    "test": "node --test",
+    "validate:sample": "node bin/tracebrief.mjs validate --report fixtures/report.clipnote.json --bundle fixtures/clipnote-bundle.json",
+    "render:sample": "node bin/tracebrief.mjs render --report fixtures/report.clipnote.json --bundle fixtures/clipnote-bundle.json --out reports/clipnote-search.md"
+  },
+  "keywords": [
+    "reverse-engineering",
+    "evidence",
+    "mcp",
+    "rea",
+    "opencode"
+  ],
+  "license": "MIT"
+}
