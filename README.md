@@ -225,7 +225,7 @@ Document and bundle checks are separate, structural passes:
 
 ## What is verified, and what is not
 
-163 tests (`npm test`, `node --test`, zero dependencies). Three of those files
+179 tests (`npm test`, `node --test`, zero dependencies). Several of those files
 exist specifically to close gaps an audit found in this suite:
 
 - `test/regression.test.mjs` — one test per real crash, bypass or silent failure
@@ -236,6 +236,9 @@ exist specifically to close gaps an audit found in this suite:
 - `test/rules-gaps.test.mjs`, `test/render-gaps.test.mjs`, `test/cli-gaps.test.mjs`
   — coverage for rules, renderer branches and CLI paths that previously had no
   assertion at all
+- `test/real-unknowns.test.mjs`, `test/real-managed.test.mjs` — behaviour proven
+  against the real REA bundles committed here, including the revision-history
+  rule and both directions of the subject warning
 
 `npm run test:mutations` is the honesty check on all of that: it copies the
 project, reverts one shipped fix at a time, and fails if the suite does not
