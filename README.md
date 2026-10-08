@@ -69,6 +69,24 @@ node scripts/install-command.mjs --uninstall
 The repository copy at `.opencode/commands/tracebrief.md` also works as-is when
 your cwd is this project.
 
+### The command was verified by invoking it
+
+Not by inspecting the file. `opencode run "/tracebrief"` in an empty directory
+resolved the global command and executed it. With no investigation in that
+session the agent exported a bundle, found zero records, and stopped — and in
+doing so proved three things:
+
+- OpenCode discovers and runs the command from `~/.config/opencode/commands/`
+- the guard works: it refused to continue without a target, quoting the
+  instruction "do not pick an example target on the user's behalf"
+- the no-fabrication rule is understood: it noted that every claim would fail
+  validation and that the only way to make the report pass would be inventing
+  `ev_<64 hex>` ids, "which the command forbids outright"
+
+It also noticed `$ARGUMENTS` was empty and derived the filename question rather
+than guessing. That run exits non-zero, correctly: there was nothing to report
+on.
+
 ## Usage
 
 ```bash
@@ -318,6 +336,9 @@ makes a native claim.
 - Evidence ids are content digests. Pin `bundle_digest` in the report and
   TraceBrief will refuse a mismatched bundle; without it, re-validating a stale
   report against a changed bundle succeeds and only the footer digest differs.
+  This is not hypothetical: during development the records from a 2.3 MB export
+  were no longer retained in the REA session by the time a later bundle was
+  exported, which is exactly the drift the pin catches.
 - Bundles can be large (this sample is 2.3 MB) and contain `raw_result`
   payloads. Commit them only if they are safe to publish; TraceBrief never
   copies them into the report.
