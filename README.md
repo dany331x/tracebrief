@@ -170,6 +170,9 @@ Errors block rendering. Warnings inform. These are the rules in
 | `command_unverified` | warning | A reproduction command asserted without a citation |
 | `tool_version_unverified` | warning | A tool version asserted without a citation |
 | `bundle_digest_unverified` | warning | A pinned digest with no bundle file to compare against |
+| `open_question_unknown_not_in_bundle` | error | An open question cites a residual unknown that is not in the bundle — an invented `unk_` id |
+| `open_question_unknown_resolved` | error | An open question cites a residual unknown the bundle records as resolved |
+| `claim_statement_duplicated` | warning | Two claims share a statement, so one finding is presented twice rather than corroborated twice |
 
 Document and bundle checks are separate, structural passes:
 
@@ -200,10 +203,25 @@ Document and bundle checks are separate, structural passes:
 
 ## What is verified, and what is not
 
-120 tests (`npm test`, `node --test`, zero dependencies), including a
-`test/regression.test.mjs` suite where each test corresponds to a real crash,
-bypass or silent failure reproduced before it was fixed — including a crash
-introduced by the hardening itself and caught by a second review pass:
+163 tests (`npm test`, `node --test`, zero dependencies). Three of those files
+exist specifically to close gaps an audit found in this suite:
+
+- `test/regression.test.mjs` — one test per real crash, bypass or silent failure
+  reproduced before it was fixed, including a crash the hardening itself
+  introduced and a second review pass caught
+- `test/contracts.test.mjs` — asserts every code in the tables above is actually
+  reachable, and that no code emitted by `src/` is missing from this README
+- `test/rules-gaps.test.mjs`, `test/render-gaps.test.mjs`, `test/cli-gaps.test.mjs`
+  — coverage for rules, renderer branches and CLI paths that previously had no
+  assertion at all
+
+`npm run test:mutations` is the honesty check on all of that: it copies the
+project, reverts one shipped fix at a time, and fails if the suite does not
+notice. It runs a baseline first, because a broken test invocation would
+otherwise make every mutation look caught. All 23 mutations are currently caught
+by the test that claims to cover them.
+
+What the suite verifies:
 
 - fabricated, malformed, duplicate and missing citations are rejected
 - issue paths point at the citation index the author actually wrote, including
@@ -214,23 +232,23 @@ introduced by the hardening itself and caught by a second review pass:
   historical source; inference-only support for a structural claim is rejected
 - limitation acknowledgement requires a substantive quotation: unrelated text,
   empty strings and single characters are all rejected
-- residual unknowns cannot be silently dropped
-- malformed **bundles and reports** (non-array `records`, bad `locations`,
-  non-object `subject`, or a report file containing `null`) are reported instead
-  of crashing the validator or the renderer
-- missing, unparseable and BOM-prefixed report **and** bundle files all exit 2
-  with a clean message and no stack trace
-- unknown flags, single-dash typos, stray positional arguments, misplaced flags,
-  `--help`, and a value flag with no value
+- a `kind: "unknown"` claim may cite nothing, and no other kind may
+- relationship claims are held to exactly the same rules as findings
+- a residual unknown cannot be invented or presented as open once it is resolved
+- one finding restated is flagged rather than counted as corroboration
+- malformed **bundles and reports** are reported instead of crashing
+- missing, unparseable and BOM-prefixed report **and** bundle files exit 2
+- unknown flags, single-dash typos, stray arguments and missing required flags
+  are usage errors with usage text, not I/O errors
 - authored text cannot inject headings, list items, table rows or code fences —
   including via a lone carriage return or a backtick inside a claim id
-- `kind: "unknown"` is always rendered, never silently dropped
-- unresolved citations are marked `(missing)` in claim bodies, the tools table
-  and the evidence index alike
+- `kind` is always rendered; unresolved citations are marked `(missing)`
+- every empty section says it was not collected
+- rendering is byte-identical across separate processes, not just within one tick
 - `--allow-invalid` still runs the integrity rules and stamps a visible banner
-- rendering is deterministic and never inlines `raw_result`
 - the command installer pins a CLI path that exists, is idempotent, refuses to
   overwrite without `--force`, and preserves the command verbatim otherwise
+- `raw_result` never reaches the report
 - the committed real REA bundle still validates after all of the above
 
 **Not verified, by design:** TraceBrief can prove a citation exists. It cannot

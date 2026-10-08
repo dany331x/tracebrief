@@ -375,16 +375,25 @@ test("regression: a report file containing JSON null does not crash", () => {
   assert.deepEqual(checkIntegrity(null, makeBundle()), []);
 });
 
-test("regression: a lone carriage return cannot inject a heading into a table cell", () => {
+test("regression: no bare carriage return reaches the rendered document", () => {
+  // A bare CR is a line ending in CommonMark, so the test must split on it.
+  // Splitting only on "\n" would pass even with the flattening reverted.
   const report = makeReport({
+    findings: [makeClaim({ id: "c1\r## INJECTED", statement: "s\r## INJECTED" })],
     reproduction: {
-      environment: [],
-      tool_versions: [{ name: "ghidra\r## INJECTED HEADING", version: "12", evidence_ids: [] }],
-      commands: [],
+      environment: ["x\r## INJECTED"],
+      tool_versions: [{ name: "ghidra\r## INJECTED", version: "12", evidence_ids: [] }],
+      commands: [{ command: "rea analyze\r## INJECTED", purpose: "p", evidence_ids: [] }],
     },
+    open_questions: [{ id: "q", question: "Q?\r## INJECTED", status: "open", evidence_ids: [] }],
+    summary: { established: [], not_established: ["n\r## INJECTED"] },
   });
   const markdown = renderMarkdown(report, makeBundle());
-  assert.ok(!markdown.split("\n").some((line) => /^## INJECTED HEADING/.test(line)));
+  assert.equal(markdown.includes("\r"), false, "a bare CR survived into the document");
+  assert.ok(
+    !markdown.split(/\r\n|\r|\n/).some((line) => /^## INJECTED/.test(line)),
+    "a CR-split line became a heading",
+  );
 });
 
 test("regression: a lone carriage return in a claim id cannot inject a heading", () => {
@@ -393,7 +402,8 @@ test("regression: a lone carriage return in a claim id cannot inject a heading",
     summary: { established: ["c1\r## INJECTED HEADING"], not_established: [] },
   });
   const markdown = renderMarkdown(report, makeBundle());
-  assert.ok(!markdown.split("\n").some((line) => /^## INJECTED HEADING/.test(line)));
+  assert.equal(markdown.includes("\r"), false);
+  assert.ok(!markdown.split(/\r\n|\r|\n/).some((line) => /^## INJECTED HEADING/.test(line)));
 });
 
 test("regression: a backtick in a claim id cannot escape its code span", () => {

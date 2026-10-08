@@ -45,9 +45,11 @@ export const checkIntegrity = (report, bundle, { bundleDigest = null } = {}) => 
   }
 
   issues.push(...checkResidualUnknowns(report, bundle));
+  issues.push(...checkOpenQuestionUnknowns(report, bundle));
   issues.push(...checkReproduction(report, index));
   issues.push(...checkSummary(report, index));
   issues.push(...checkTarget(report, index));
+  issues.push(...checkDuplicateStatements(report));
 
   return sortIssues(issues);
 };
@@ -269,6 +271,71 @@ const checkResidualUnknowns = (report, bundle) => {
         path: `open_questions`,
         detail: { unknown_index: offset },
       });
+    }
+  }
+  return issues;
+};
+
+/**
+ * An open question must not present a residual unknown as still open unless that
+ * unknown exists in the bundle and is genuinely unresolved. Otherwise a report
+ * can show a live-looking gap backed by a resolved unknown, or by an invented
+ * `unk_` id that never existed.
+ */
+const checkOpenQuestionUnknowns = (report, bundle) => {
+  const issues = [];
+  const index = indexBundle(bundle);
+  for (const [position, question] of asArray(report?.open_questions).entries()) {
+    const declared = question?.unknown_id;
+    if (typeof declared !== "string") continue;
+    const unknown = index.unknowns.get(declared);
+    const path = `open_questions[${position}].unknown_id`;
+    if (!unknown) {
+      issues.push({
+        level: "error",
+        code: "open_question_unknown_not_in_bundle",
+        message: `Open question cites residual unknown ${declared}, which is not in this bundle.`,
+        path,
+      });
+      continue;
+    }
+    if (unknown.status === "resolved") {
+      issues.push({
+        level: "error",
+        code: "open_question_unknown_resolved",
+        message: `Open question cites residual unknown ${declared}, which the bundle records as resolved. Present it in the summary instead of as an open question.`,
+        path,
+      });
+    }
+  }
+  return issues;
+};
+
+/**
+ * Two claims with the same statement are almost always one finding restated,
+ * which inflates the appearance of corroboration. Flagged rather than rejected:
+ * deliberate repetition is possible, and a false rejection would be worse than
+ * a reviewable warning.
+ */
+const checkDuplicateStatements = (report) => {
+  const issues = [];
+  const seen = new Map();
+  for (const section of SECTIONS) {
+    for (const [position, claim] of asArray(report?.[section]).entries()) {
+      const statement = typeof claim?.statement === "string" ? claim.statement : null;
+      if (statement === null || statement.trim().length === 0) continue;
+      const normalized = statement.toLowerCase().replace(/\s+/g, " ").trim();
+      const first = seen.get(normalized);
+      if (first) {
+        issues.push({
+          level: "warning",
+          code: "claim_statement_duplicated",
+          message: `Claim statement is identical to ${first.id} in ${first.section}. One finding restated does not corroborate it.`,
+          path: `${section}[${position}].statement`,
+        });
+      } else {
+        seen.set(normalized, { id: claim?.id ?? "an earlier claim", section });
+      }
     }
   }
   return issues;

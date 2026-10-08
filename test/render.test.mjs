@@ -89,7 +89,7 @@ test("lists carried limitations once, sorted", () => {
 
 test("surfaces bundle residual unknowns the report did not carry", () => {
   const bundle = makeBundle({
-    unknowns: [{ unknown_id: unknownId("u"), status: "blocked", question: "Which variant?" }],
+    unknowns: [{ unknown_id: unknownId("1"), status: "blocked", question: "Which variant?" }],
   });
   const markdown = render(makeReport(), bundle);
   assert.ok(markdown.includes("not carried into this report"));
@@ -128,13 +128,19 @@ test("reports missing evidence inline instead of leaving an empty cell", () => {
 
 test("renders evidence links after the table, never inside a row", () => {
   const bundle = makeBundle({ records: [makeRecord({ evidence_links: [evidenceId("b")] })] });
-  const markdown = render(makeReport(), bundle);
-  const linkLine = markdown.split("\n").find((line) => line.includes("Evidence links"));
-  assert.ok(linkLine.startsWith("Evidence links"));
-  const indexStart = markdown.indexOf("## Evidence index");
-  const tableEnd = markdown.indexOf("Bundle digest");
-  assert.ok(markdown.indexOf("Evidence links") > tableEnd);
-  void indexStart;
+  // A digest must be supplied so "Bundle digest" exists as a real end-of-section
+  // marker; without one the previous comparison was `x > -1` and always passed.
+  const markdown = render(makeReport(), bundle, { bundleDigest: "a".repeat(64) });
+  const tableHeader = markdown.indexOf("| Evidence |");
+  assert.ok(tableHeader > 0, "fixture must contain the evidence-index table header");
+  const links = markdown.indexOf("Evidence links");
+  const digest = markdown.indexOf("Bundle digest");
+  assert.ok(links > 0, "fixture must contain the evidence-links block");
+  assert.ok(digest > 0, "fixture must contain the bundle digest marker");
+  assert.ok(links > tableHeader, `links at ${links} must follow the table header at ${tableHeader}`);
+  assert.ok(links < digest, `links at ${links} must precede the digest marker at ${digest}`);
+  // And the links must be a list, not a continuation of the table.
+  assert.ok(markdown.split("\n").find((line) => line.includes("Evidence links")).startsWith("Evidence links"));
 });
 
 test("marks uncited reproduction commands explicitly", () => {

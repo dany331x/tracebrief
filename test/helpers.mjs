@@ -1,9 +1,33 @@
 /** Shared builders for tests. Nothing here talks to REA; all data is synthetic. */
-export const hex = (char) => char.repeat(64);
+
+/**
+ * Build a 64-character hex digest from a single repeated character.
+ *
+ * The character is validated on purpose: REA's own ids are `ev_[0-9a-f]{64}` and
+ * `unk_[0-9a-f]{64}`, so an earlier version of this helper happily produced
+ * `unk_uuuu...` fixtures that the validator would reject in real life. Every id
+ * in the suite now goes through here, so that class of fixture cannot come back.
+ */
+export const hex = (char) => {
+  if (typeof char !== "string" || !/^[0-9a-f]$/.test(char)) {
+    throw new Error(
+      `hex() takes exactly one lowercase hex character, got ${JSON.stringify(char)}. Use a digit 0-9 or a letter a-f.`,
+    );
+  }
+  return char.repeat(64);
+};
 export const evidenceId = (char) => `ev_${hex(char)}`;
 export const unknownId = (char) => `unk_${hex(char)}`;
 
 export const TARGET_DIGEST = hex("d");
+
+/** Error and warning code extractors, shared by every test file. */
+export const codes = (issues) =>
+  issues.filter((issue) => issue.level === "error").map((issue) => issue.code);
+export const warningCodes = (issues) =>
+  issues.filter((issue) => issue.level === "warning").map((issue) => issue.code);
+export const issuePaths = (issues, code) =>
+  issues.filter((issue) => issue.code === code).map((issue) => issue.path);
 
 export const makeRecord = (overrides = {}) => {
   const base = {
@@ -79,7 +103,3 @@ export const makeReport = (overrides = {}) => {
   };
   return { ...base, ...overrides };
 };
-
-export const codes = (issues) => issues.filter((issue) => issue.level === "error").map((issue) => issue.code);
-export const warningCodes = (issues) =>
-  issues.filter((issue) => issue.level === "warning").map((issue) => issue.code);

@@ -125,7 +125,7 @@ test("rejects a residual unknown the report does not carry", () => {
   const bundle = makeBundle({
     unknowns: [
       {
-        unknown_id: unknownId("u"),
+        unknown_id: unknownId("1"),
         revision: 1,
         status: "open",
         question: "Which unpacker variant is used?",
@@ -140,7 +140,7 @@ test("rejects a residual unknown the report does not carry", () => {
 
 test("carrying the residual unknown with its id clears the error", () => {
   const bundle = makeBundle({
-    unknowns: [{ unknown_id: unknownId("u"), revision: 1, status: "open", question: "Which unpacker variant?" }],
+    unknowns: [{ unknown_id: unknownId("1"), revision: 1, status: "open", question: "Which unpacker variant?" }],
   });
   const report = makeReport({
     open_questions: [
@@ -148,7 +148,7 @@ test("carrying the residual unknown with its id clears the error", () => {
         id: "q1",
         question: "Which unpacker variant is used?",
         status: "open",
-        unknown_id: unknownId("u"),
+        unknown_id: unknownId("1"),
         evidence_ids: [],
       },
     ],
