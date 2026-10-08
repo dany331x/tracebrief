@@ -53,6 +53,10 @@ const parseArgs = (argv) => {
       continue;
     }
     if (!token.startsWith("--")) {
+      // A single-dash token is a typo, not a positional argument.
+      if (token.startsWith("-") && token.length > 1) {
+        throw new UsageError(`unknown option "${token}" (options are spelled --long)`);
+      }
       positionals.push(token);
       continue;
     }
@@ -68,7 +72,7 @@ const parseArgs = (argv) => {
     flags[name] = value;
     index += 1;
   }
-  return { command: positionals[0], flags };
+  return { command: positionals[0], flags, positionals };
 };
 
 class UsageError extends Error {}
@@ -133,13 +137,18 @@ const main = () => {
     if (error instanceof UsageError) failUsage(error.message);
     throw error;
   }
-  const { command, flags } = parsed;
+  const { command, flags, positionals } = parsed;
 
   if (flags.help || command === "help" || (!command && Object.keys(flags).length === 0)) {
     process.stdout.write(USAGE);
     process.exit(command || flags.help ? 0 : 2);
   }
   if (!command) failUsage("no command given");
+  if (positionals.length > 1) {
+    failUsage(
+      `unexpected argument "${positionals[1]}"; this tool takes only one command. Did a flag value go missing its --name?`,
+    );
+  }
   const spec = COMMANDS[command];
   if (!spec) failUsage(`unknown command "${command}"`);
 
@@ -156,7 +165,8 @@ const main = () => {
     const { bundle } = readBundle(flags.bundle);
     const issues = validateBundle(bundle);
     if (flags.json) {
-      process.stdout.write(`${JSON.stringify({ records: bundle?.records ?? [], issues }, null, 2)}\n`);
+      const records = Array.isArray(bundle?.records) ? bundle.records : [];
+      process.stdout.write(`${JSON.stringify({ records, issues }, null, 2)}\n`);
     } else {
       const records = (Array.isArray(bundle?.records) ? bundle.records : [])
         .filter((record) => record && typeof record === "object")

@@ -3,7 +3,9 @@ description: Create an evidence-first reverse-engineering report from the curren
 ---
 
 Create a TraceBrief report for the current investigation and write it to
-`reports/$ARGUMENTS.md` (default filename: `reports/tracebrief.md`).
+`reports/$ARGUMENTS.md`. If `$ARGUMENTS` is empty, choose a descriptive
+filename from the investigation (for example `reports/<target>-<feature>.md`)
+and tell the user which path you used.
 
 TraceBrief separates authoring from rendering: **you** write the claims, a
 deterministic script checks every citation and renders the Markdown. Never write
@@ -44,8 +46,9 @@ the report Markdown yourself.
        Decompiled output is not the original source.
      - `analysis-coverage` — statements about what the analysis did or could
        not establish (exempt from the observed-basis rule).
-   - Quote at least one limitation from each cited record onto the claims it
-     affects.
+   - Quote at least one limitation from the records you cite onto the claims it
+     affects. A full quote, or a run of four or more consecutive words from one,
+     counts; a single word or an unrelated sentence does not.
    - Put every non-resolved bundle unknown in `open_questions` with its
      `unknown_id`.
    - Set `target.artifact_digest` from `bundle.artifacts`; omitting it disables

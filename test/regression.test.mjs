@@ -16,6 +16,7 @@ import { loadBundleFile, parseJsonText, validateBundle } from "../src/bundle.mjs
 import { validateReport } from "../src/report.mjs";
 import { checkIntegrity } from "../src/rules.mjs";
 import { renderMarkdown } from "../src/render-markdown.mjs";
+import * as renderMarkdownModule from "../src/render-markdown.mjs";
 import { TARGET_DIGEST, evidenceId, hex, makeBundle, makeClaim, makeRecord, makeReport } from "./helpers.mjs";
 
 const CLI = fileURLToPath(new URL("../bin/tracebrief.mjs", import.meta.url));
@@ -327,16 +328,153 @@ test("regression: an invalid draft carries a visible banner", () => {
 });
 
 test("regression: an invalid draft is marked even with --allow-invalid", () => {
+  // The bundle is structurally broken AND the report carries a fabricated id,
+  // so this only passes if integrity rules still run when the report is broken.
   const bundle = makeBundle({ captures: undefined });
-  const reportPath = writeJson("draft.json", makeReport());
+  const report = makeReport({
+    findings: [makeClaim({ evidence_ids: [evidenceId("9")] })],
+    summary: { established: [], not_established: [] },
+  });
+  const reportPath = writeJson("draft.json", report);
   const bundlePath = writeJson("draftbundle.json", bundle);
   const out = join(dir, "draft.md");
   const outcome = run(["render", "--report", reportPath, "--bundle", bundlePath, "--out", out, "--allow-invalid"]);
   assert.equal(outcome.code, 1);
   const markdown = readFileSync(out, "utf8");
   assert.ok(markdown.includes("did not pass validation"));
-  // Integrity still ran: the fabricated id is reported, not silently rendered.
+  // Both the structural error and the integrity error must be reported.
   assert.match(outcome.stderr, /bundle_missing_array/);
+  assert.match(outcome.stderr, /evidence_not_in_bundle/);
+  // The draft body must mark the unresolved citation too.
+  assert.ok(markdown.includes("(missing)"));
+  assert.ok(markdown.includes("evidence_not_in_bundle"));
+});
+
+test("regression: the evidence index marks an unresolved citation row", () => {
+  const markdown = renderMarkdown(
+    makeReport({ findings: [makeClaim({ evidence_ids: [evidenceId("9")] })] }),
+    makeBundle(),
+  );
+  const row = markdown.split("\n").find((line) => line.includes(evidenceId("9")) && line.startsWith("| "));
+  assert.ok(row.includes("missing from bundle"));
+});
+
+test("regression: a report file containing JSON null does not crash", () => {
+  const reportPath = writeJson("null-report.json", "null");
+  const bundlePath = writeJson("null-bundle.json", makeBundle());
+  for (const args of [
+    ["validate", "--report", reportPath, "--bundle", bundlePath],
+    ["render", "--report", reportPath, "--bundle", bundlePath, "--allow-invalid"],
+  ]) {
+    const outcome = run(args);
+    assert.equal(outcome.code, 1, args[0]);
+    assert.match(outcome.stderr, /report_not_object/);
+    assert.doesNotMatch(outcome.stderr, /TypeError|at Object|at Module/);
+  }
+  // And through the API, not only the CLI.
+  assert.deepEqual(checkIntegrity(null, makeBundle()), []);
+});
+
+test("regression: a lone carriage return cannot inject a heading into a table cell", () => {
+  const report = makeReport({
+    reproduction: {
+      environment: [],
+      tool_versions: [{ name: "ghidra\r## INJECTED HEADING", version: "12", evidence_ids: [] }],
+      commands: [],
+    },
+  });
+  const markdown = renderMarkdown(report, makeBundle());
+  assert.ok(!markdown.split("\n").some((line) => /^## INJECTED HEADING/.test(line)));
+});
+
+test("regression: a lone carriage return in a claim id cannot inject a heading", () => {
+  const report = makeReport({
+    findings: [makeClaim({ id: "c1\r## INJECTED HEADING" })],
+    summary: { established: ["c1\r## INJECTED HEADING"], not_established: [] },
+  });
+  const markdown = renderMarkdown(report, makeBundle());
+  assert.ok(!markdown.split("\n").some((line) => /^## INJECTED HEADING/.test(line)));
+});
+
+test("regression: a backtick in a claim id cannot escape its code span", () => {
+  const report = makeReport({
+    findings: [makeClaim({ id: "c1` **bold** [click](http://evil.example)" })],
+    summary: { established: [], not_established: [] },
+  });
+  const markdown = renderMarkdown(report, makeBundle());
+  const line = markdown.split("\n").find((l) => l.includes("Claim id"));
+  // The raw text may still contain Markdown syntax; what matters is that it
+  // stays inside one unbroken code span, so it renders as literal characters.
+  assert.equal((line.match(/`/g) ?? []).length, 2);
+  assert.ok(line.includes("`c1' **bold** [click](http://evil.example)`"));
+});
+
+test("regression: a one-character limitation does not count as acknowledgement", () => {
+  const bundle = makeBundle({
+    records: [makeRecord({ limitations: ["Coverage is partial; addresses are unverified."] })],
+  });
+  for (const acknowledgement of [["a"], ["e"], ["is"], ["partial"]]) {
+    const report = makeReport({ findings: [makeClaim({ limitations: acknowledgement })] });
+    assert.ok(
+      warnCodes(checkIntegrity(report, bundle)).includes("claim_limitations_not_carried"),
+      `${JSON.stringify(acknowledgement)} should not count`,
+    );
+  }
+  // A substantive fragment of the limitation does count.
+  const report = makeReport({
+    findings: [makeClaim({ limitations: ["Coverage is partial; addresses"] })],
+  });
+  assert.ok(!warnCodes(checkIntegrity(report, bundle)).includes("claim_limitations_not_carried"));
+});
+
+test("regression: a stray positional argument and a single-dash typo are rejected", () => {
+  const report = writeJson("pos.json", makeReport());
+  const bundle = writeJson("posbundle.json", makeBundle());
+  const stray = run(["render", "--report", report, "--bundle", bundle, "reports/out.md"]);
+  assert.equal(stray.code, 2);
+  assert.match(stray.stderr, /unexpected argument/);
+  const typo = run(["validate", "-v", "--report", report, "--bundle", bundle]);
+  assert.equal(typo.code, 2);
+  assert.match(typo.stderr, /unknown option "-v"/);
+});
+
+test("regression: index --json always emits a records array", () => {
+  const outcome = run(["index", "--bundle", writeJson("strrec.json", makeBundle({ records: "nope" })), "--json"]);
+  assert.equal(outcome.code, 1);
+  const parsed = JSON.parse(outcome.stdout);
+  assert.ok(Array.isArray(parsed.records));
+});
+
+test("regression: a missing target digest warns even when the bundle has no artifacts", () => {
+  const report = makeReport();
+  delete report.target.artifact_digest;
+  const bundle = makeBundle({ artifacts: [] });
+  assert.ok(warnCodes(checkIntegrity(report, bundle)).includes("target_digest_missing"));
+});
+
+test("regression: an explicit null bundle_digest is rejected rather than looking pinned", () => {
+  assert.ok(
+    errorCodes(validateReport(makeReport({ bundle_digest: null }))).includes(
+      "report_bundle_digest_malformed",
+    ),
+  );
+});
+
+test("regression: the escape helpers are total and neutralise leading markers", () => {
+  const { prose, code } = renderMarkdownModule;
+  // Non-renderable values never throw, even a hostile object.
+  for (const value of [{ toString: 0 }, Object.create(null), [], () => {}, NaN, Infinity, Symbol.iterator]) {
+    assert.equal(typeof prose(value), "string");
+    assert.equal(typeof code(value), "string");
+  }
+  assert.equal(prose("# heading"), "\\# heading");
+  assert.equal(prose("- item"), "\\- item");
+  assert.equal(prose("> quote"), "\\> quote");
+  // Mid-line markers are inert text and deliberately left readable; only a marker
+  // at the very start of a value can begin a block, and that is escaped.
+  assert.equal(prose("a\n# b"), "a # b");
+  assert.equal(code("a`b"), "a'b");
+  assert.equal(code("a\r\nb"), "a b");
 });
 
 test("regression: a pipes-laden authority cannot break the evidence table", () => {

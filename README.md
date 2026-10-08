@@ -64,8 +64,10 @@ Exit codes:
 | `1` | Validation errors. `render` wrote nothing unless `--allow-invalid`. |
 | `2` | Usage or I/O failure: missing/unreadable/invalid-JSON report **or** bundle, unknown command, unknown or malformed flag. |
 
-Unknown flags and flags used with the wrong subcommand are rejected rather
-than ignored, so a typo cannot silently change what runs.
+Unknown flags, single-dash typos (`-v`), stray positional arguments and flags
+used with the wrong subcommand are rejected rather than ignored, so a typo
+cannot silently change what runs — or make a render write no file and still
+exit 0.
 
 Try it against the committed real bundle:
 
@@ -84,7 +86,7 @@ npm run render:sample
 | `target.name` | non-empty string | **Not** nullable |
 | `target.version`, `target.format`, `target.architecture`, `target.local_path` | string or `null` | `null` renders as *unknown — not collected* |
 | `target.artifact_digest` | sha256 hex or `null` | Omitting it disables cross-artifact verification and warns |
-| `bundle_digest` | sha256 hex or `null` | **Optional.** Pins the report to one exact bundle; a mismatch is an error |
+| `bundle_digest` | sha256 hex, or omitted | **Optional.** Pins the report to one exact bundle; a mismatch is an error. An explicit `null` is rejected, because it would look pinned while verifying nothing |
 | `reproduction.environment` | array of strings | Use `[]` for *not collected*; `null` is rejected |
 | `reproduction.tool_versions[]` | `{ name, version?, evidence_ids }` | `name` and `evidence_ids` required; `version` must be a string if present |
 | `reproduction.commands[]` | `{ command, purpose?, evidence_ids }` | `command` and `evidence_ids` required; `purpose` must be a string if present |
@@ -139,7 +141,7 @@ Errors block rendering. Warnings inform. These are the rules in
 | `target_not_in_bundle` | error | A target digest absent from `bundle.artifacts` |
 | `summary_establishes_unknown` | error | A summary claiming a claim that is marked `unknown` |
 | `bundle_digest_mismatch` | error | A pinned `bundle_digest` that is not the supplied bundle |
-| `target_digest_missing` | warning | No target digest, so cross-artifact verification is off |
+| `target_digest_missing` | warning | No target digest, so cross-artifact verification is off. Warned unconditionally, including when the bundle lists no artifacts |
 | `evidence_subject_unavailable` | warning | Cited records carry no subject, so the digest link rests on `evidence_links` alone |
 | `claim_limitations_not_carried` | warning | The claim quotes **none** of the limitations its cited records carry |
 | `evidence_link_unresolved` | warning | A cited record links to evidence outside the bundle |
@@ -176,32 +178,42 @@ Document and bundle checks are separate, structural passes:
 
 ## What is verified, and what is not
 
-101 tests (`npm test`, `node --test`, zero dependencies) including a
+112 tests (`npm test`, `node --test`, zero dependencies), including a
 `test/regression.test.mjs` suite where each test corresponds to a real crash,
-bypass or silent failure reproduced before it was fixed:
+bypass or silent failure reproduced before it was fixed — including a crash
+introduced by the hardening itself and caught by a second review pass:
 
 - fabricated, malformed, duplicate and missing citations are rejected
-- issue paths point at the citation index the author actually wrote
+- issue paths point at the citation index the author actually wrote, including
+  when a non-string entry sits earlier in the list
 - evidence from the wrong artifact is rejected, and omitting the target digest
   warns instead of silently disabling the check
 - runtime claims require runtime authority; source-equivalence requires a
   historical source; inference-only support for a structural claim is rejected
-- unrelated or empty text does not satisfy the limitation-acknowledgement rule
+- limitation acknowledgement requires a substantive quotation: unrelated text,
+  empty strings and single characters are all rejected
 - residual unknowns cannot be silently dropped
-- malformed bundles (non-array `records`, bad `locations`, non-object `subject`)
-  are reported instead of crashing the validator or the renderer
+- malformed **bundles and reports** (non-array `records`, bad `locations`,
+  non-object `subject`, or a report file containing `null`) are reported instead
+  of crashing the validator or the renderer
 - missing, unparseable and BOM-prefixed report **and** bundle files all exit 2
-  with a clean message
-- unknown flags, misplaced flags, `--help`, and a value flag with no value
-- authored text cannot inject headings, list items, table rows or code fences
+  with a clean message and no stack trace
+- unknown flags, single-dash typos, stray positional arguments, misplaced flags,
+  `--help`, and a value flag with no value
+- authored text cannot inject headings, list items, table rows or code fences —
+  including via a lone carriage return or a backtick inside a claim id
 - `kind: "unknown"` is always rendered, never silently dropped
+- unresolved citations are marked `(missing)` in claim bodies, the tools table
+  and the evidence index alike
 - `--allow-invalid` still runs the integrity rules and stamps a visible banner
 - rendering is deterministic and never inlines `raw_result`
 - the committed real REA bundle still validates after all of the above
 
 **Not verified, by design:** TraceBrief can prove a citation exists. It cannot
 prove a sentence reads the cited bytes correctly. Prose that misinterprets
-evidence still passes. This is stated here rather than implied away.
+evidence still passes. It also does not render Markdown itself, so "cannot
+inject" is asserted as a line-level property of the output, not by round-tripping
+a CommonMark parser. Both limits are stated here rather than implied away.
 
 ## Sample
 

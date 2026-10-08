@@ -71,13 +71,15 @@ export const validateReport = (report) => {
     }
   }
 
-  if (report.bundle_digest !== undefined && report.bundle_digest !== null) {
+  // An explicit null would look pinned while verifying nothing, so only omit the
+  // field or supply a real digest.
+  if ("bundle_digest" in report && report.bundle_digest !== undefined) {
     if (typeof report.bundle_digest !== "string" || !SHA256_PATTERN.test(report.bundle_digest)) {
       issues.push(
         issue(
           "error",
           "report_bundle_digest_malformed",
-          "bundle_digest must be a sha256 hex digest.",
+          "bundle_digest must be a sha256 hex digest. Omit the field entirely if the report is not pinned to a bundle.",
           "bundle_digest",
         ),
       );

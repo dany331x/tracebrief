@@ -19,6 +19,7 @@ import {
   RUNTIME_AUTHORITIES,
   SOURCE_AUTHORITIES,
   indexBundle,
+  isPlainObject,
   openUnknowns,
 } from "./bundle.mjs";
 
@@ -28,12 +29,16 @@ const SECTIONS = ["findings", "relationships"];
 /** Run every integrity rule. Returns issues ordered by severity then code. */
 export const checkIntegrity = (report, bundle, { bundleDigest = null } = {}) => {
   const issues = [];
+  // Integrity rules assume a report document. When there is none, the schema
+  // pass has already reported it; emitting a cascade of "missing field" issues
+  // on top would bury the real diagnostic.
+  if (!isPlainObject(report)) return issues;
   const index = indexBundle(bundle);
 
   issues.push(...checkBundleDigest(report, bundleDigest));
 
   for (const section of SECTIONS) {
-    for (const [position, claim] of asArray(report[section]).entries()) {
+    for (const [position, claim] of asArray(report?.[section]).entries()) {
       const path = `${section}[${position}]`;
       issues.push(...checkClaim(claim, path, index, report));
     }
@@ -51,22 +56,25 @@ const checkClaim = (claim, path, index, report) => {
   const issues = [];
   if (typeof claim !== "object" || claim === null) return issues;
 
-  const cited = (claim.evidence_ids ?? []).filter((id) => typeof id === "string");
+  // Iterate the author's raw list so the reported offset is the index they wrote,
+  // even when a non-string entry was filtered out above.
+  const rawIds = asArray(claim.evidence_ids);
   const records = [];
-  for (const [offset, id] of cited.entries()) {
-    const record = index.records.get(id);
+  for (const [offset, value] of rawIds.entries()) {
+    if (typeof value !== "string") continue;
+    const record = index.records.get(value);
     if (!record) {
       issues.push({
         level: "error",
         code: "evidence_not_in_bundle",
-        message: `Citation ${id} is not present in the Evidence bundle.`,
+        message: `Citation ${value} is not present in the Evidence bundle.`,
         path: `${path}.evidence_ids[${offset}]`,
       });
       continue;
     }
     // Keep the citation index so a reported path points at the id the author
     // actually wrote, not at a filtered position.
-    records.push({ offset, id, record });
+    records.push({ offset, id: value, record });
   }
   const only = records.map((entry) => entry.record);
 
@@ -210,13 +218,31 @@ const checkBundleDigest = (report, bundleDigest) => {
   ];
 };
 
-/** A limitation counts as carried when the claim quotes it, ignoring case and spacing. */
+/**
+ * A limitation counts as carried when the claim quotes it, ignoring case and
+ * spacing. Quoting must be substantive: a full quote, or a contiguous run of at
+ * least MIN_QUOTE_WORDS words from it (or the whole limitation when it is
+ * shorter). A single character that happens to occur in the limitation is not an
+ * acknowledgement, and neither is a phrase lifted from somewhere else.
+ */
+const MIN_QUOTE_WORDS = 4;
+
 const acknowledgesAny = (acknowledged, limitation) => {
   const normalize = (text) => text.toLowerCase().replace(/\s+/g, " ").trim();
   const target = normalize(limitation);
+  if (target.length === 0) return false;
+  const targetWords = target.split(" ");
+  const runLength = Math.min(MIN_QUOTE_WORDS, targetWords.length);
   return acknowledged.some((entry) => {
+    if (typeof entry !== "string") return false;
     const candidate = normalize(entry);
-    return candidate.length > 0 && (candidate.includes(target) || target.includes(candidate));
+    if (candidate.length === 0) return false;
+    if (candidate.includes(target)) return true;
+    for (let start = 0; start + runLength <= targetWords.length; start += 1) {
+      const run = targetWords.slice(start, start + runLength).join(" ");
+      if (candidate.includes(run)) return true;
+    }
+    return false;
   });
 };
 
@@ -230,7 +256,7 @@ const checkResidualUnknowns = (report, bundle) => {
   const open = openUnknowns(bundle);
   if (open.length === 0) return issues;
   const carried = new Set(
-    asArray(report.open_questions)
+    asArray(report?.open_questions)
       .map((question) => question?.unknown_id)
       .filter((id) => typeof id === "string"),
   );
@@ -250,7 +276,7 @@ const checkResidualUnknowns = (report, bundle) => {
 
 const checkReproduction = (report, index) => {
   const issues = [];
-  const toolVersions = asArray(report.reproduction?.tool_versions);
+  const toolVersions = asArray(report?.reproduction?.tool_versions);
   for (const [position, entry] of toolVersions.entries()) {
     const path = `reproduction.tool_versions[${position}]`;
     const cited = asArray(entry?.evidence_ids);
@@ -266,7 +292,7 @@ const checkReproduction = (report, index) => {
     issues.push(...missingCitationIssues(cited, path, index));
   }
 
-  const commands = asArray(report.reproduction?.commands);
+  const commands = asArray(report?.reproduction?.commands);
   for (const [position, entry] of commands.entries()) {
     const path = `reproduction.commands[${position}]`;
     if (asArray(entry?.evidence_ids).length === 0) {
@@ -285,9 +311,9 @@ const checkReproduction = (report, index) => {
 
 const checkSummary = (report, index) => {
   const issues = [];
-  const allClaims = SECTIONS.flatMap((section) => asArray(report[section]));
+  const allClaims = SECTIONS.flatMap((section) => asArray(report?.[section]));
   const claimIds = new Set(allClaims.map((claim) => claim?.id));
-  for (const id of asArray(report.summary?.established)) {
+  for (const id of asArray(report?.summary?.established)) {
     if (!claimIds.has(id)) continue;
     const claim = allClaims.find((candidate) => candidate?.id === id);
     if (claim?.kind === "unknown") {
@@ -305,7 +331,7 @@ const checkSummary = (report, index) => {
 
 const checkTarget = (report, index) => {
   const issues = [];
-  const digest = report.target?.artifact_digest;
+  const digest = report?.target?.artifact_digest;
   if (typeof digest === "string") {
     if (!index.artifacts.has(digest)) {
       issues.push({
@@ -315,7 +341,7 @@ const checkTarget = (report, index) => {
         path: "target.artifact_digest",
       });
     }
-  } else if (index.artifacts.size > 0) {
+  } else {
     // Without a digest, cross-artifact verification is silently disabled. That
     // must never pass unnoticed: the report could cite any artifact's evidence.
     issues.push({
@@ -371,9 +397,9 @@ export const citedEvidenceIds = (report) => {
   for (const section of SECTIONS) {
     for (const claim of asArray(report[section])) add(claim?.evidence_ids);
   }
-  for (const question of asArray(report.open_questions)) add(question?.evidence_ids);
+  for (const question of asArray(report?.open_questions)) add(question?.evidence_ids);
   for (const key of ["tool_versions", "commands"]) {
-    for (const entry of asArray(report.reproduction?.[key])) add(entry?.evidence_ids);
+    for (const entry of asArray(report?.reproduction?.[key])) add(entry?.evidence_ids);
   }
   return [...ids].sort();
 };

@@ -27,20 +27,35 @@ const MARKDOWN_LEADING = /^([-#>+])/;
  * can never introduce a heading, list item, table row or link.
  */
 const prose = (value) => {
-  if (value === null || value === undefined) return "";
+  if (!isRenderable(value)) return "";
   const flat = String(value).replace(/\s+/g, " ").trim();
   if (flat.length === 0) return "";
   return flat.replace(MARKDOWN_INLINE, "\\$1").replace(MARKDOWN_LEADING, "\\$1");
 };
 
-/** Escape a value for a table cell: no newlines, no cell breaks. */
+/**
+ * Flatten for a table cell or code span: no line endings of any kind (a lone CR
+ * is a line ending in CommonMark), no cell breaks, no backticks.
+ */
 const inline = (value) => {
-  if (value === null || value === undefined) return "";
-  return String(value).replace(/\r?\n/g, " ").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").trim();
+  if (!isRenderable(value)) return "";
+  return String(value)
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|")
+    .replace(/`/g, "'")
+    .trim();
 };
 
 /** Inline code span. Backticks are replaced because the span is single-backtick. */
-const code = (value) => String(value ?? "").replace(/\s+/g, " ").replace(/`/g, "'").trim();
+const code = (value) => {
+  if (!isRenderable(value)) return "";
+  return String(value).replace(/\s+/g, " ").replace(/`/g, "'").trim();
+};
+
+/** Only strings and finite numbers are rendered; anything else is treated as absent. */
+const isRenderable = (value) =>
+  typeof value === "string" || (typeof value === "number" && Number.isFinite(value));
 
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -83,7 +98,9 @@ const renderInvalidBanner = (issues) => {
     "",
   ];
   for (const entry of errors.slice(0, 10)) {
-    lines.push(`> - \`${entry.code}\` ${prose(entry.message)}`);
+    // Codes go in a code span; messages are flattened but not escaped, since
+    // escaping them would print stray backslashes into a quoted diagnostic.
+    lines.push(`> - \`${inline(entry.code)}\` ${inline(entry.message)}`);
   }
   if (errors.length > 10) lines.push(`> - …and ${errors.length - 10} more`);
   lines.push("");
@@ -142,7 +159,14 @@ const renderClaims = (heading, claims, citedRecords) => {
       `- **Kind:** ${prose(claim.kind) || UNKNOWN_VALUE} · **Type:** ${prose(claim.claim_type) || UNKNOWN_VALUE}`,
     );
     if (anchors.length > 0) {
-      lines.push(`- **Evidence:** ${anchors.map((id) => `\`${shortRef(id)}\``).join(", ")}`);
+      // Mark citations the bundle cannot resolve here too, not only in the
+      // index and the tools table.
+      const known = new Set(citedRecords.map((record) => record.evidence_id));
+      lines.push(
+        `- **Evidence:** ${anchors
+          .map((id) => `\`${shortRef(id)}\`${known.has(id) ? "" : " **(missing)**"}`)
+          .join(", ")}`,
+      );
       const observed = citedRecords.filter((record) => anchors.includes(record.evidence_id));
       if (observed.length > 0) {
         const authorities = [...new Set(observed.map((record) => record.authority))].sort();
