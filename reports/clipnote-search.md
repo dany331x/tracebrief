@@ -17,7 +17,8 @@ In the shipped ClipNote Electron application, how does a query typed in the rend
 
 ### 1. REA recorded three literal IPC channels, three renderer transmissions and three main-process handlers, and paired all three renderer transmissions with a handler; no unpaired literal renderer transmissions were reported.
 
-- **Claim id:** `f-ipc-channels-paired` · **Kind:** derived · **Type:** structure
+- **Claim id:** `f-ipc-channels-paired`
+- **Kind:** derived · **Type:** structure
 - **Evidence:** `ev_b318dce1e595…`
 - **Cited evidence reports:** authority shipped-artifact; confidence derived
 - **Limitations:**
@@ -26,7 +27,8 @@ In the shipped ClipNote Electron application, how does a query typed in the rend
 
 ### 2. The preload entrypoint exposes three members through one context bridge, and three explicit web preferences were recorded, including contextIsolation and nodeIntegration.
 
-- **Claim id:** `f-context-bridge-surface` · **Kind:** derived · **Type:** structure
+- **Claim id:** `f-context-bridge-surface`
+- **Kind:** derived · **Type:** structure
 - **Evidence:** `ev_b318dce1e595…`
 - **Cited evidence reports:** authority shipped-artifact; confidence derived
 - **Limitations:**
@@ -34,7 +36,8 @@ In the shipped ClipNote Electron application, how does a query typed in the rend
 
 ### 3. REA recorded zero sender-validation observations across the inventoried IPC surface. This is an absence in static analysis and is not evidence that no validation exists at runtime.
 
-- **Claim id:** `f-no-sender-validation-observed` · **Kind:** derived · **Type:** structure
+- **Claim id:** `f-no-sender-validation-observed`
+- **Kind:** derived · **Type:** structure
 - **Evidence:** `ev_b318dce1e595…`
 - **Cited evidence reports:** authority shipped-artifact; confidence derived
 - **Limitations:**
@@ -42,7 +45,8 @@ In the shipped ClipNote Electron application, how does a query typed in the rend
 
 ### 4. The analysis parsed eight JavaScript files, visited 959 AST nodes and produced 44 findings with zero parse failures, zero invalid UTF-8 files and zero truncated scopes.
 
-- **Claim id:** `f-inventory-complete` · **Kind:** derived · **Type:** structure
+- **Claim id:** `f-inventory-complete`
+- **Kind:** derived · **Type:** structure
 - **Evidence:** `ev_b318dce1e595…`
 - **Cited evidence reports:** authority shipped-artifact; confidence derived
 - **Limitations:**
@@ -50,7 +54,8 @@ In the shipped ClipNote Electron application, how does a query typed in the rend
 
 ### 5. A semantic trace seeded on the same literal channel matched zero seed nodes and reported coverage status partial, so the semantic graph contributed no nodes for this question.
 
-- **Claim id:** `f-semantic-seed-unresolved` · **Kind:** observed · **Type:** analysis-coverage
+- **Claim id:** `f-semantic-seed-unresolved`
+- **Kind:** observed · **Type:** analysis-coverage
 - **Evidence:** `ev_d8fd194032b8…`
 - **Cited evidence reports:** authority analyst-inference; confidence inferred
 - **Limitations:**
@@ -60,16 +65,18 @@ In the shipped ClipNote Electron application, how does a query typed in the rend
 
 ### 1. Tracing the literal channel note:search with one seed match expanded to 49 nodes and 76 relations, of which 59 facts were observed and 70 were inferred candidates, with coverage complete-within-source.
 
-- **Claim id:** `r-search-channel-trace` · **Kind:** inferred · **Type:** structure
+- **Claim id:** `r-search-channel-trace`
+- **Kind:** inferred · **Type:** structure
 - **Evidence:** `ev_467e4f47ae59…`, `ev_b318dce1e595…`
 - **Cited evidence reports:** authority analyst-inference, shipped-artifact; confidence derived, inferred
 - **Limitations:**
   - A trace reports graph relationships, not proof that code executed or that a feature is reachable in every state.
   - Artifact identity is unavailable for this observation.
 
-### 2. Both workflow records link back to the application analysis record through evidence_links, so the trace and semantic records are derived from the same inventoried artifact rather than from separate targets.
+### 2. Both workflow records link back to the application analysis record through evidence\_links, so the trace and semantic records are derived from the same inventoried artifact rather than from separate targets.
 
-- **Claim id:** `r-provenance-chain` · **Kind:** observed · **Type:** analysis-coverage
+- **Claim id:** `r-provenance-chain`
+- **Kind:** observed · **Type:** analysis-coverage
 - **Evidence:** `ev_467e4f47ae59…`, `ev_d8fd194032b8…`
 - **Cited evidence reports:** authority analyst-inference; confidence inferred
 - **Limitations:**
@@ -86,7 +93,7 @@ Limitations carried by the cited evidence:
 - A trace reports graph relationships, not proof that code executed or that a feature is reachable in every state.
 - Artifact identity is unavailable for this observation.
 - Boundary extraction covers unshadowed JSON/global coercions plus parse and validation method candidates.
-- Child-process extraction covers asynchronous node:child_process creation, literal argv/env/stdio options, exit/error listeners, and kill signals.
+- Child-process extraction covers asynchronous node:child\_process creation, literal argv/env/stdio options, exit/error listeners, and kill signals.
 - CommonJS and ESM binding relationships were recovered from inert syntax and resolved only within the inventoried artifact container.
 - Configuration extraction covers process.env, process.argv, node:fs reads, and direct logical defaults.
 - Electron relationships are derived from inert syntax; runtime registration, reachability, defaults, and enforcement remain unproven.
@@ -110,7 +117,7 @@ Limitations carried by the cited evidence:
 
 ### Environment
 
-- windows-x86_64
+- windows-x86\_64
 - Node.js v24.21.0
 - REA 6.0.0 (npx rea-agents@6.0.0 mcp)
 - No analysis engine configured: Hopper is unsupported on this host and neither Ghidra nor IDA was set, so every record below is static JavaScript analysis.
@@ -177,4 +184,4 @@ Bundle digest (sha256 of the exported file): `da54696514f9596de8af7a51f641b01dcb
 
 TraceBrief report. Evidence bundle contains 3 record(s), 0 residual unknown(s), digest `da54696514f9596de8af7a51f641b01dcb2e1968594b58916ca3fd787497dbb1`.
 
-Regenerate with `tracebrief render --report <report.json> --bundle <bundle.json>`. Identical inputs produce identical output.
+Regenerate with `node bin/tracebrief.mjs render --report <report.json> --bundle <bundle.json>`. Identical inputs produce identical output.

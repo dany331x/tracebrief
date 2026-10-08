@@ -28,11 +28,12 @@ citations and renders the document. A prompt alone cannot verify that
 
 ## Requirements
 
-- Node.js 22.19+ (tested on 24.21)
+- Node.js 22.19+ (developed and tested on 24.21)
 - A REA MCP registration for the agent doing the authoring — for example
   `npx rea-agents@latest setup --client opencode`
 
-TraceBrief itself has **zero dependencies**.
+TraceBrief itself has **zero dependencies** (no `dependencies` or
+`devDependencies`; nothing to install).
 
 ## Install
 
@@ -50,13 +51,21 @@ globally.
 
 ```bash
 node bin/tracebrief.mjs validate --report report.json --bundle bundle.json [--json]
-node bin/tracebrief.mjs render   --report report.json --bundle bundle.json [--out report.md]
+node bin/tracebrief.mjs render   --report report.json --bundle bundle.json [--out report.md] [--allow-invalid]
 node bin/tracebrief.mjs index    --bundle bundle.json [--json]
+node bin/tracebrief.mjs --help
 ```
 
-Exit codes: `0` clean (warnings allowed), `1` validation errors, `2` usage or
-I/O failure. `render` refuses to write a report that failed validation unless
-`--allow-invalid` is passed, so an unsupported claim cannot reach a file.
+Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Clean. Warnings may still have been printed. |
+| `1` | Validation errors. `render` wrote nothing unless `--allow-invalid`. |
+| `2` | Usage or I/O failure: missing/unreadable/invalid-JSON report **or** bundle, unknown command, unknown or malformed flag. |
+
+Unknown flags and flags used with the wrong subcommand are rejected rather
+than ignored, so a typo cannot silently change what runs.
 
 Try it against the committed real bundle:
 
@@ -67,18 +76,25 @@ npm run render:sample
 
 ## Report schema
 
-`report.json`, schema tag `tracebrief/report@1`:
+`report.json`, schema tag `tracebrief/report@1`. All nine keys are required.
 
-| Field | Meaning |
-| --- | --- |
-| `title`, `question` | What was investigated |
-| `target` | `name`, `version`, `artifact_digest`, `format`, `architecture`, `local_path`; use `null` for anything unknown |
-| `reproduction.environment` | Host, runtime, and any missing prerequisites |
-| `reproduction.tool_versions` | `{ name, version, evidence_ids }` |
-| `reproduction.commands` | `{ command, purpose, evidence_ids }` |
-| `findings[]`, `relationships[]` | Claims |
-| `open_questions[]` | `{ id, question, status, evidence_ids, unknown_id? }` |
-| `summary` | `{ established: [claim ids], not_established: [strings] }` |
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title`, `question` | non-empty string | Free prose; newlines are flattened on render |
+| `target.name` | non-empty string | **Not** nullable |
+| `target.version`, `target.format`, `target.architecture`, `target.local_path` | string or `null` | `null` renders as *unknown — not collected* |
+| `target.artifact_digest` | sha256 hex or `null` | Omitting it disables cross-artifact verification and warns |
+| `bundle_digest` | sha256 hex or `null` | **Optional.** Pins the report to one exact bundle; a mismatch is an error |
+| `reproduction.environment` | array of strings | Use `[]` for *not collected*; `null` is rejected |
+| `reproduction.tool_versions[]` | `{ name, version?, evidence_ids }` | `name` and `evidence_ids` required; `version` must be a string if present |
+| `reproduction.commands[]` | `{ command, purpose?, evidence_ids }` | `command` and `evidence_ids` required; `purpose` must be a string if present |
+| `findings[]`, `relationships[]` | claims | May be empty arrays |
+| `open_questions[]` | `{ id, question, status, evidence_ids, unknown_id? }` | `status` is one of `open`, `investigating`, `blocked`, `contradicted`. `evidence_ids` is required and may be `[]` |
+| `summary.established` | array of claim ids | Each must exist in `findings` or `relationships` |
+| `summary.not_established` | array of non-empty strings | |
+
+`evidence_ids` is **always required**, including on a `kind: "unknown"` claim,
+where it is simply `[]`.
 
 A claim:
 
@@ -93,57 +109,99 @@ A claim:
 }
 ```
 
-`kind` is `observed` | `derived` | `inferred` | `unknown`, mirroring REA's
-own confidence vocabulary. `claim_type` is what the claim asserts:
+`kind` is `observed` | `derived` | `inferred`, mirroring REA's own confidence
+vocabulary, plus `unknown` for a gap that was deliberately left open.
+
+`claim_type` is what the claim asserts, and drives the integrity rules:
 
 | `claim_type` | Allowed when |
 | --- | --- |
-| `structure` | Describes the artifact's static shape |
-| `behavior` | Describes what code does, with at least one observed or derived record cited |
+| `structure` | Describes the artifact's static shape, with at least one `observed` or `derived` record cited |
+| `behavior` | Describes what code does, with at least one `observed` or `derived` record cited |
 | `runtime-behavior` | Cites a record with authority `controlled-replay` or `external-service` |
 | `source-equivalence` | Cites a `historical-reference` record (an imported historical source tree) |
-| `analysis-coverage` | States what the analysis did or could not establish; exempt from the observed-basis rule |
+| `analysis-coverage` | States what the analysis did or could not establish; exempt from the observed-basis rule, since reporting an evidence gap is a legitimate result |
 
-## Integrity rules
+## Evidence integrity rules
 
-Errors block rendering. Warnings inform.
+Errors block rendering. Warnings inform. These are the rules in
+`src/rules.mjs`:
 
 | Code | Level | Rejects |
 | --- | --- | --- |
 | `evidence_not_in_bundle` | error | A citation that is not in the bundle — the fabrication case |
-| `evidence_id_malformed` | error | An id that is not `ev_<64 hex>` |
-| `claim_without_evidence` | error | A non-unknown claim citing nothing |
 | `evidence_subject_mismatch` | error | Evidence about a different artifact than the reported target |
+| `claim_without_evidence` | error | A non-`unknown` claim citing nothing |
+| `claim_requires_observed_basis` | error | `structure`/`behavior` resting only on `inferred` records |
 | `runtime_claim_without_runtime_authority` | error | Runtime behavior asserted from static-only authority |
 | `source_equivalence_without_historical_source` | error | "This is the original source" with no historical source record |
-| `claim_requires_observed_basis` | error | Structure or behavior resting only on `inferred` records |
 | `residual_unknown_not_carried` | error | A bundle unknown missing from `open_questions` |
 | `target_not_in_bundle` | error | A target digest absent from `bundle.artifacts` |
-| `summary_establishes_unknown` | error | A summary claiming a claim that is marked unknown |
-| `summary_claim_unknown` | error | A summary citing a claim id that does not exist |
+| `summary_establishes_unknown` | error | A summary claiming a claim that is marked `unknown` |
+| `bundle_digest_mismatch` | error | A pinned `bundle_digest` that is not the supplied bundle |
+| `target_digest_missing` | warning | No target digest, so cross-artifact verification is off |
 | `evidence_subject_unavailable` | warning | Cited records carry no subject, so the digest link rests on `evidence_links` alone |
-| `claim_limitations_not_carried` | warning | Cited limitations are not acknowledged on the claim |
+| `claim_limitations_not_carried` | warning | The claim quotes **none** of the limitations its cited records carry |
 | `evidence_link_unresolved` | warning | A cited record links to evidence outside the bundle |
-| `command_unverified`, `tool_version_unverified` | warning | Reproduction steps asserted without a citation |
+| `command_unverified` | warning | A reproduction command asserted without a citation |
+| `tool_version_unverified` | warning | A tool version asserted without a citation |
+| `bundle_digest_unverified` | warning | A pinned digest with no bundle file to compare against |
+
+Document and bundle checks are separate, structural passes:
+
+- **Report schema** (`src/report.mjs`): `report_not_object`,
+  `report_key_missing`, `report_key_unknown`, `report_schema_mismatch`,
+  `text_missing`, `target_invalid`, `target_field_invalid`,
+  `target_digest_malformed`, `report_bundle_digest_malformed`,
+  `report_section_invalid`, `claim_invalid`, `claim_id_duplicated`,
+  `claim_kind_invalid`, `claim_type_invalid`, `claim_limitations_invalid`,
+  `claim_limitation_empty`, `evidence_ids_missing`, `evidence_ids_invalid`,
+  `evidence_id_malformed`, `open_questions_invalid`, `open_question_invalid`,
+  `open_question_id_duplicated`, `open_question_status_invalid`,
+  `open_question_unknown_id_malformed`, `summary_invalid`,
+  `summary_field_invalid`, `summary_claim_unknown`, `reproduction_invalid`,
+  `reproduction_key_missing`, `reproduction_list_invalid`,
+  `reproduction_entry_invalid`, `reproduction_environment_invalid`.
+- **Evidence bundle** (`src/bundle.mjs`): `bundle_not_object`,
+  `bundle_missing_array`, `bundle_unknown_key`, `record_not_object`,
+  `record_id_malformed`, `record_id_duplicated`, `record_confidence_invalid`,
+  `record_authority_invalid`, `record_provider_missing`,
+  `record_limitations_invalid`, `record_links_invalid`,
+  `record_subject_invalid`, `record_locations_invalid`,
+  `record_location_invalid`, `record_location_field_missing`,
+  `record_location_kind_unknown`, `unknown_not_object`,
+  `unknown_id_malformed`.
+
+`validate --json` prints every issue with its code, severity and JSON path.
 
 ## What is verified, and what is not
 
-Verified by the test suite (67 tests, `node --test`):
+101 tests (`npm test`, `node --test`, zero dependencies) including a
+`test/regression.test.mjs` suite where each test corresponds to a real crash,
+bypass or silent failure reproduced before it was fixed:
 
-- fabricated, malformed and missing citations are rejected
-- evidence from the wrong artifact is rejected
+- fabricated, malformed, duplicate and missing citations are rejected
+- issue paths point at the citation index the author actually wrote
+- evidence from the wrong artifact is rejected, and omitting the target digest
+  warns instead of silently disabling the check
 - runtime claims require runtime authority; source-equivalence requires a
-  historical source
-- inference-only support for a structural claim is rejected
+  historical source; inference-only support for a structural claim is rejected
+- unrelated or empty text does not satisfy the limitation-acknowledgement rule
 - residual unknowns cannot be silently dropped
+- malformed bundles (non-array `records`, bad `locations`, non-object `subject`)
+  are reported instead of crashing the validator or the renderer
+- missing, unparseable and BOM-prefixed report **and** bundle files all exit 2
+  with a clean message
+- unknown flags, misplaced flags, `--help`, and a value flag with no value
+- authored text cannot inject headings, list items, table rows or code fences
+- `kind: "unknown"` is always rendered, never silently dropped
+- `--allow-invalid` still runs the integrity rules and stamps a visible banner
 - rendering is deterministic and never inlines `raw_result`
-- table cells, pipes and empty sections are handled correctly
-- the CLI refuses to write an invalid report, and `exit 2` covers usage/IO errors
+- the committed real REA bundle still validates after all of the above
 
 **Not verified, by design:** TraceBrief can prove a citation exists. It cannot
 prove a sentence reads the cited bytes correctly. Prose that misinterprets
-evidence still passes. The README, the rules and the report all state this
-rather than implying the tool can catch semantic errors.
+evidence still passes. This is stated here rather than implied away.
 
 ## Sample
 
@@ -155,33 +213,39 @@ rather than implying the tool can catch semantic errors.
   `trace_application_feature`, `trace_javascript_semantics`)
 - claims: `fixtures/report.clipnote.json`
 
-The sample validates with 0 errors and 3 honest warnings, including one that
-says the TraceBrief render command itself is not backed by REA evidence. It
-also demonstrates the tool working against its author: two of the drafted
-claims were rejected as unsupported assertions about the app until they were
+The sample validates with 0 errors and 3 warnings, one of which says the
+TraceBrief render command itself is not backed by REA evidence. It also
+demonstrates the tool working against its own author: two drafted claims were
+rejected as unsupported assertions about the application until they were
 reclassified as `analysis-coverage`, which is what they actually were.
 
 Environment note: this sample is static JavaScript analysis only. Hopper is
 macOS/Linux, and no Ghidra or IDA installation was configured, so the report
-makes no native claim.
+makes no native claim. A second integration check against a real PE
+(`inspect_managed_artifact` on a Windows PowerShell assembly) was run during
+development to exercise different record shapes — `format: pe`, `file-offset`
+locations — and to confirm cross-artifact detection against a mixed bundle.
 
 ## Limitations
 
-- Evidence ids are content digests. A committed report can only be re-validated
-  against the bundle that produced it; the report records the bundle digest so
-  a mismatch is detectable.
+- Evidence ids are content digests. Pin `bundle_digest` in the report and
+  TraceBrief will refuse a mismatched bundle; without it, re-validating a stale
+  report against a changed bundle succeeds and only the footer digest differs.
 - Bundles can be large (this sample is 2.3 MB) and contain `raw_result`
   payloads. Commit them only if they are safe to publish; TraceBrief never
   copies them into the report.
 - Reports are authored by an LLM, so wording quality is unverified. Only
   citations and assertion classes are machine-checked.
-- Native sections are untested against a real provider on this host.
+- The limitation-acknowledgement rule requires quoting at least one carried
+  limitation, not all of them: a record may carry a dozen. Every carried
+  limitation is printed in the report regardless.
+- Native analysis paths are untested on this host (no Hopper/Ghidra/IDA).
 
 ## Roadmap
 
 1. `/tracebrief` command plus validator (current).
-2. A `tracebrief` custom tool for OpenCode (`.opencode/tools/`) so report
-   validation happens inside the tool call instead of as a separate step.
+2. A `tracebrief` custom tool for OpenCode (`.opencode/tools/`) so validation
+   happens inside the tool call instead of as a separate step.
 3. Upstream discussion with the REA maintainers. REA owns canonical Evidence
    serialization, so a bundle-to-Markdown renderer arguably belongs in REA
    itself; the claim model and integrity rules are the part specific to agent
@@ -195,7 +259,7 @@ bin/tracebrief.mjs                 CLI: validate | render | index
 src/bundle.mjs                     Evidence bundle reading and structural checks
 src/report.mjs                     report.json schema validation
 src/rules.mjs                      evidence integrity rules
-src/render-markdown.mjs            deterministic Markdown renderer
+src/render-markdown.mjs            deterministic, injection-proof renderer
 test/                              node:test suite
 fixtures/clipnote/                 Electron fixture application
 fixtures/clipnote-bundle.json      real REA evidence export

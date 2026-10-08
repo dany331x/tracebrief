@@ -48,6 +48,13 @@ export const REQUIRED_TOP_LEVEL_KEYS = Object.freeze([
   "summary",
 ]);
 
+/**
+ * Optional top-level keys TraceBrief understands. `bundle_digest` pins a report
+ * to the exact bundle it was written against, so a later validation against a
+ * different bundle can detect the drift instead of silently re-rendering.
+ */
+export const OPTIONAL_TOP_LEVEL_KEYS = Object.freeze(["bundle_digest"]);
+
 export const validateReport = (report) => {
   const issues = [];
   if (!isPlainObject(report)) {
@@ -59,8 +66,21 @@ export const validateReport = (report) => {
     if (!(key in report)) issues.push(issue("error", "report_key_missing", `Report is missing "${key}".`, key));
   }
   for (const key of Object.keys(report)) {
-    if (!REQUIRED_TOP_LEVEL_KEYS.includes(key)) {
+    if (!REQUIRED_TOP_LEVEL_KEYS.includes(key) && !OPTIONAL_TOP_LEVEL_KEYS.includes(key)) {
       issues.push(issue("warning", "report_key_unknown", `Unexpected report key "${key}".`, key));
+    }
+  }
+
+  if (report.bundle_digest !== undefined && report.bundle_digest !== null) {
+    if (typeof report.bundle_digest !== "string" || !SHA256_PATTERN.test(report.bundle_digest)) {
+      issues.push(
+        issue(
+          "error",
+          "report_bundle_digest_malformed",
+          "bundle_digest must be a sha256 hex digest.",
+          "bundle_digest",
+        ),
+      );
     }
   }
 
@@ -191,6 +211,16 @@ const validateReproduction = (reproduction) => {
           issue("error", "reproduction_entry_invalid", `Entry is missing a non-empty "${labelKey}".`, `${path}.${labelKey}`),
         );
       }
+      if (key === "tool_versions" && entry.version !== undefined && typeof entry.version !== "string") {
+        issues.push(
+          issue("error", "reproduction_entry_invalid", "Tool version must be a string.", `${path}.version`),
+        );
+      }
+      if (key === "commands" && entry.purpose !== undefined && typeof entry.purpose !== "string") {
+        issues.push(
+          issue("error", "reproduction_entry_invalid", "Command purpose must be a string.", `${path}.purpose`),
+        );
+      }
       issues.push(...validateEvidenceIdList(entry.evidence_ids, `${path}.evidence_ids`));
     }
   }
@@ -237,6 +267,19 @@ export const validateClaim = (claim, path) => {
               "error",
               "claim_limitations_invalid",
               "Claim limitation entries must be strings.",
+              `${path}.limitations[${index}]`,
+            ),
+          );
+          continue;
+        }
+        if (value.trim().length === 0) {
+          // An empty string would satisfy a naive "did the author acknowledge
+          // anything?" check while acknowledging nothing.
+          issues.push(
+            issue(
+              "error",
+              "claim_limitation_empty",
+              "Claim limitation entries must be non-empty: quote the limitation from the cited record.",
               `${path}.limitations[${index}]`,
             ),
           );
@@ -343,6 +386,18 @@ const validateSummary = (summary, claimIds) => {
           "summary_claim_unknown",
           `summary.established references claim ${id}, which is not defined in findings or relationships.`,
           `summary.established[${index}]`,
+        ),
+      );
+    }
+  }
+  for (const [index, entry] of (summary.not_established ?? []).entries()) {
+    if (typeof entry !== "string" || entry.trim().length === 0) {
+      issues.push(
+        issue(
+          "error",
+          "summary_field_invalid",
+          "summary.not_established entries must be non-empty strings.",
+          `summary.not_established[${index}]`,
         ),
       );
     }

@@ -26,12 +26,14 @@ import {
 const SECTIONS = ["findings", "relationships"];
 
 /** Run every integrity rule. Returns issues ordered by severity then code. */
-export const checkIntegrity = (report, bundle) => {
+export const checkIntegrity = (report, bundle, { bundleDigest = null } = {}) => {
   const issues = [];
   const index = indexBundle(bundle);
 
+  issues.push(...checkBundleDigest(report, bundleDigest));
+
   for (const section of SECTIONS) {
-    for (const [position, claim] of (report[section] ?? []).entries()) {
+    for (const [position, claim] of asArray(report[section]).entries()) {
       const path = `${section}[${position}]`;
       issues.push(...checkClaim(claim, path, index, report));
     }
@@ -62,8 +64,11 @@ const checkClaim = (claim, path, index, report) => {
       });
       continue;
     }
-    records.push(record);
+    // Keep the citation index so a reported path points at the id the author
+    // actually wrote, not at a filtered position.
+    records.push({ offset, id, record });
   }
+  const only = records.map((entry) => entry.record);
 
   const kind = claim.kind;
   const claimType = claim.claim_type;
@@ -78,7 +83,7 @@ const checkClaim = (claim, path, index, report) => {
   }
 
   if (records.length > 0 && claimType !== "runtime-behavior" && claimType !== "source-equivalence") {
-    if (claimType !== "analysis-coverage" && records.every((record) => record.confidence === "inferred")) {
+    if (claimType !== "analysis-coverage" && only.every((record) => record.confidence === "inferred")) {
       issues.push({
         level: "error",
         code: "claim_requires_observed_basis",
@@ -90,19 +95,19 @@ const checkClaim = (claim, path, index, report) => {
   }
 
   if (claimType === "runtime-behavior" && records.length > 0) {
-    const witnessed = records.filter((record) => RUNTIME_AUTHORITIES.includes(record.authority));
+    const witnessed = only.filter((record) => RUNTIME_AUTHORITIES.includes(record.authority));
     if (witnessed.length === 0) {
       issues.push({
         level: "error",
         code: "runtime_claim_without_runtime_authority",
-        message: `Runtime behavior requires at least one cited record with authority ${RUNTIME_AUTHORITIES.join(" or ")}. Cited authorities: ${describeAuthorities(records)}. Static analysis does not witness execution.`,
+        message: `Runtime behavior requires at least one cited record with authority ${RUNTIME_AUTHORITIES.join(" or ")}. Cited authorities: ${describeAuthorities(only)}. Static analysis does not witness execution.`,
         path: `${path}.claim_type`,
       });
     }
   }
 
   if (claimType === "source-equivalence" && records.length > 0) {
-    const historical = records.filter((record) => SOURCE_AUTHORITIES.includes(record.authority));
+    const historical = only.filter((record) => SOURCE_AUTHORITIES.includes(record.authority));
     if (historical.length === 0) {
       issues.push({
         level: "error",
@@ -116,7 +121,7 @@ const checkClaim = (claim, path, index, report) => {
 
   const targetDigest = report?.target?.artifact_digest;
   if (typeof targetDigest === "string") {
-    for (const [offset, record] of records.entries()) {
+    for (const { offset, record } of records) {
       const subjectDigest = record.subject?.digest?.sha256;
       if (subjectDigest && subjectDigest !== targetDigest) {
         issues.push({
@@ -129,7 +134,7 @@ const checkClaim = (claim, path, index, report) => {
     }
   }
 
-  if (records.length > 0 && records.every((record) => record.subject == null)) {
+  if (records.length > 0 && only.every((record) => record.subject == null)) {
     issues.push({
       level: "warning",
       code: "evidence_subject_unavailable",
@@ -139,8 +144,8 @@ const checkClaim = (claim, path, index, report) => {
     });
   }
 
-  for (const [offset, record] of records.entries()) {
-    for (const link of record.evidence_links ?? []) {
+  for (const { offset, record } of records) {
+    for (const link of asArray(record.evidence_links)) {
       if (!index.records.has(link)) {
         issues.push({
           level: "warning",
@@ -152,12 +157,21 @@ const checkClaim = (claim, path, index, report) => {
     }
   }
 
-  const carried = recordLimitations(records);
-  if (carried.length > 0 && (claim.limitations ?? []).length === 0) {
+  // Acknowledging a limitation means naming it, not merely supplying some text.
+  // The bar is "quotes at least one carried limitation", not "quotes all of
+  // them": a record may carry a dozen, and an unmeetable rule teaches authors to
+  // ignore warnings. The rendered report always prints every carried limitation
+  // in its own section, so nothing is hidden from the reader either way.
+  const carried = recordLimitations(only);
+  const acknowledged = asArray(claim.limitations).filter(
+    (entry) => typeof entry === "string" && entry.trim().length > 0,
+  );
+  const carriedOntoClaim = carried.filter((limitation) => acknowledgesAny(acknowledged, limitation));
+  if (carried.length > 0 && carriedOntoClaim.length === 0) {
     issues.push({
       level: "warning",
       code: "claim_limitations_not_carried",
-      message: `${carried.length} limitation(s) on the cited records are not acknowledged on this claim.`,
+      message: `None of the ${carried.length} limitation(s) on the cited records is acknowledged on this claim: ${truncate(carried.join(" | "), 200)}`,
       path: `${path}.limitations`,
     });
   }
@@ -165,12 +179,58 @@ const checkClaim = (claim, path, index, report) => {
   return issues;
 };
 
+/**
+ * A report that pins a bundle digest must be validated against that exact
+ * bundle. Without this, a stale report re-renders cleanly against a different
+ * bundle and the reader has no way to notice except by comparing two hex
+ * strings by eye.
+ */
+const checkBundleDigest = (report, bundleDigest) => {
+  const declared = report?.bundle_digest;
+  if (typeof declared !== "string") return [];
+  if (!bundleDigest) {
+    return [
+      {
+        level: "warning",
+        code: "bundle_digest_unverified",
+        message:
+          "Report pins a bundle_digest but no bundle file digest was available to compare it against.",
+        path: "bundle_digest",
+      },
+    ];
+  }
+  if (declared === bundleDigest) return [];
+  return [
+    {
+      level: "error",
+      code: "bundle_digest_mismatch",
+      message: `Report was written against bundle ${declared}, but the supplied bundle is ${bundleDigest}. The evidence may have changed.`,
+      path: "bundle_digest",
+    },
+  ];
+};
+
+/** A limitation counts as carried when the claim quotes it, ignoring case and spacing. */
+const acknowledgesAny = (acknowledged, limitation) => {
+  const normalize = (text) => text.toLowerCase().replace(/\s+/g, " ").trim();
+  const target = normalize(limitation);
+  return acknowledged.some((entry) => {
+    const candidate = normalize(entry);
+    return candidate.length > 0 && (candidate.includes(target) || target.includes(candidate));
+  });
+};
+
+const truncate = (text, limit) => (text.length > limit ? `${text.slice(0, limit - 1)}…` : text);
+
+/** Treat a malformed collection as empty so rules report, never crash. */
+const asArray = (value) => (Array.isArray(value) ? value : []);
+
 const checkResidualUnknowns = (report, bundle) => {
   const issues = [];
   const open = openUnknowns(bundle);
   if (open.length === 0) return issues;
   const carried = new Set(
-    (report.open_questions ?? [])
+    asArray(report.open_questions)
       .map((question) => question?.unknown_id)
       .filter((id) => typeof id === "string"),
   );
@@ -190,10 +250,10 @@ const checkResidualUnknowns = (report, bundle) => {
 
 const checkReproduction = (report, index) => {
   const issues = [];
-  const toolVersions = report.reproduction?.tool_versions ?? [];
+  const toolVersions = asArray(report.reproduction?.tool_versions);
   for (const [position, entry] of toolVersions.entries()) {
     const path = `reproduction.tool_versions[${position}]`;
-    const cited = entry?.evidence_ids ?? [];
+    const cited = asArray(entry?.evidence_ids);
     if (cited.length === 0) {
       issues.push({
         level: "warning",
@@ -206,10 +266,10 @@ const checkReproduction = (report, index) => {
     issues.push(...missingCitationIssues(cited, path, index));
   }
 
-  const commands = report.reproduction?.commands ?? [];
+  const commands = asArray(report.reproduction?.commands);
   for (const [position, entry] of commands.entries()) {
     const path = `reproduction.commands[${position}]`;
-    if ((entry?.evidence_ids ?? []).length === 0) {
+    if (asArray(entry?.evidence_ids).length === 0) {
       issues.push({
         level: "warning",
         code: "command_unverified",
@@ -217,7 +277,7 @@ const checkReproduction = (report, index) => {
         path,
       });
     } else {
-      issues.push(...missingCitationIssues(entry.evidence_ids, path, index));
+      issues.push(...missingCitationIssues(asArray(entry.evidence_ids), path, index));
     }
   }
   return issues;
@@ -225,14 +285,11 @@ const checkReproduction = (report, index) => {
 
 const checkSummary = (report, index) => {
   const issues = [];
-  const claimIds = new Set(
-    SECTIONS.flatMap((section) => (report[section] ?? []).map((claim) => claim?.id)),
-  );
-  for (const id of report.summary?.established ?? []) {
+  const allClaims = SECTIONS.flatMap((section) => asArray(report[section]));
+  const claimIds = new Set(allClaims.map((claim) => claim?.id));
+  for (const id of asArray(report.summary?.established)) {
     if (!claimIds.has(id)) continue;
-    const claim = SECTIONS.flatMap((section) => report[section] ?? []).find(
-      (candidate) => candidate?.id === id,
-    );
+    const claim = allClaims.find((candidate) => candidate?.id === id);
     if (claim?.kind === "unknown") {
       issues.push({
         level: "error",
@@ -249,11 +306,23 @@ const checkSummary = (report, index) => {
 const checkTarget = (report, index) => {
   const issues = [];
   const digest = report.target?.artifact_digest;
-  if (typeof digest === "string" && !index.artifacts.has(digest)) {
+  if (typeof digest === "string") {
+    if (!index.artifacts.has(digest)) {
+      issues.push({
+        level: "error",
+        code: "target_not_in_bundle",
+        message: `target.artifact_digest ${digest} does not appear in the bundle artifacts.`,
+        path: "target.artifact_digest",
+      });
+    }
+  } else if (index.artifacts.size > 0) {
+    // Without a digest, cross-artifact verification is silently disabled. That
+    // must never pass unnoticed: the report could cite any artifact's evidence.
     issues.push({
-      level: "error",
-      code: "target_not_in_bundle",
-      message: `target.artifact_digest ${digest} does not appear in the bundle artifacts.`,
+      level: "warning",
+      code: "target_digest_missing",
+      message:
+        "target.artifact_digest is not set, so TraceBrief cannot verify that cited evidence describes the reported artifact. Cross-artifact verification is disabled.",
       path: "target.artifact_digest",
     });
   }
@@ -262,8 +331,9 @@ const checkTarget = (report, index) => {
 
 const missingCitationIssues = (cited, path, index) =>
   cited
-    .filter((id) => typeof id === "string" && !index.records.has(id))
-    .map((id, offset) => ({
+    .map((id, offset) => ({ id, offset }))
+    .filter(({ id }) => typeof id === "string" && !index.records.has(id))
+    .map(({ id, offset }) => ({
       level: "error",
       code: "evidence_not_in_bundle",
       message: `Citation ${id} is not present in the Evidence bundle.`,
@@ -273,8 +343,8 @@ const missingCitationIssues = (cited, path, index) =>
 const recordLimitations = (records) => {
   const seen = new Set();
   for (const record of records) {
-    for (const limitation of record.limitations ?? []) {
-      if (typeof limitation === "string") seen.add(limitation);
+    for (const limitation of asArray(record?.limitations)) {
+      if (typeof limitation === "string" && limitation.trim().length > 0) seen.add(limitation);
     }
   }
   return [...seen];
@@ -295,18 +365,15 @@ const sortIssues = (issues) =>
 /** Every evidence id the report cites, de-duplicated and sorted. */
 export const citedEvidenceIds = (report) => {
   const ids = new Set();
+  const add = (list) => {
+    for (const id of asArray(list)) if (typeof id === "string") ids.add(id);
+  };
   for (const section of SECTIONS) {
-    for (const claim of report[section] ?? []) {
-      for (const id of claim?.evidence_ids ?? []) if (typeof id === "string") ids.add(id);
-    }
+    for (const claim of asArray(report[section])) add(claim?.evidence_ids);
   }
-  for (const question of report.open_questions ?? []) {
-    for (const id of question?.evidence_ids ?? []) if (typeof id === "string") ids.add(id);
-  }
+  for (const question of asArray(report.open_questions)) add(question?.evidence_ids);
   for (const key of ["tool_versions", "commands"]) {
-    for (const entry of report.reproduction?.[key] ?? []) {
-      for (const id of entry?.evidence_ids ?? []) if (typeof id === "string") ids.add(id);
-    }
+    for (const entry of asArray(report.reproduction?.[key])) add(entry?.evidence_ids);
   }
   return [...ids].sort();
 };

@@ -1,5 +1,6 @@
 {
   "schema": "tracebrief/report@1",
+  "bundle_digest": "da54696514f9596de8af7a51f641b01dcb2e1968594b58916ca3fd787497dbb1",
   "title": "How ClipNote search travels from the renderer to the main process",
   "question": "In the shipped ClipNote Electron application, how does a query typed in the renderer reach the main process, and which parts of that path are established statically versus still unproven at runtime?",
   "target": {

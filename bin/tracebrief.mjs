@@ -3,7 +3,7 @@
  * tracebrief CLI.
  *
  *   tracebrief validate --report <report.json> --bundle <bundle.json> [--json]
- *   tracebrief render   --report <report.json> --bundle <bundle.json> [--out <file>]
+ *   tracebrief render   --report <report.json> --bundle <bundle.json> [--out <file>] [--allow-invalid]
  *   tracebrief index    --bundle <bundle.json> [--json]
  *
  * Exit codes: 0 clean (warnings allowed), 1 validation errors, 2 usage or I/O
@@ -12,7 +12,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { loadBundleFile, validateBundle } from "../src/bundle.mjs";
+import { loadBundleFile, parseJsonText, validateBundle } from "../src/bundle.mjs";
 import { validateReport } from "../src/report.mjs";
 import { checkIntegrity, citedEvidenceIds } from "../src/rules.mjs";
 import { renderMarkdown } from "../src/render-markdown.mjs";
@@ -23,46 +23,88 @@ Usage:
   tracebrief validate --report <report.json> --bundle <bundle.json> [--json]
   tracebrief render   --report <report.json> --bundle <bundle.json> [--out <file>] [--allow-invalid]
   tracebrief index    --bundle <bundle.json> [--json]
+
+Exit codes:
+  0  clean (warnings allowed)
+  1  validation errors
+  2  usage or I/O failure
 `;
 
+const COMMANDS = {
+  validate: { flags: ["report", "bundle", "json"] },
+  render: { flags: ["report", "bundle", "out", "json", "allow-invalid"] },
+  index: { flags: ["bundle", "json"] },
+};
+
+/** Flags that take a value. Everything else is boolean. */
+const VALUE_FLAGS = new Set(["report", "bundle", "out"]);
+
+/**
+ * Parse argv strictly: unknown flags and valueless value flags are usage
+ * errors, so a typo can never be silently ignored.
+ */
 const parseArgs = (argv) => {
-  const [command, ...rest] = argv;
   const flags = {};
-  for (let index = 0; index < rest.length; index += 1) {
-    const token = rest[index];
-    if (!token.startsWith("--")) continue;
+  const positionals = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === "--help" || token === "-h") {
+      flags.help = true;
+      continue;
+    }
+    if (!token.startsWith("--")) {
+      positionals.push(token);
+      continue;
+    }
     const name = token.slice(2);
-    const next = rest[index + 1];
-    if (next === undefined || next.startsWith("--")) {
+    if (!VALUE_FLAGS.has(name)) {
       flags[name] = true;
       continue;
     }
-    flags[name] = next;
+    const value = argv[index + 1];
+    if (value === undefined || value.startsWith("--")) {
+      throw new UsageError(`option --${name} requires a value`);
+    }
+    flags[name] = value;
     index += 1;
   }
-  return { command, flags };
+  return { command: positionals[0], flags };
 };
 
-const fail = (message) => {
+class UsageError extends Error {}
+
+const fail = (message, code = 2) => {
   process.stderr.write(`${message}\n`);
-  process.exit(2);
+  process.exit(code);
 };
 
-const readJson = (path, label) => {
+const failUsage = (message) => fail(`tracebrief: ${message}\n\n${USAGE}`);
+
+const readBundle = (path) => {
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
+    return loadBundleFile(path);
   } catch (cause) {
-    fail(`tracebrief: cannot read ${label} at ${path}: ${cause.message}`);
+    fail(`tracebrief: cannot read bundle at ${path}: ${cause.message}`);
+  }
+};
+
+const readReport = (path) => {
+  try {
+    return parseJsonText(readFileSync(path, "utf8"), `Report ${path}`);
+  } catch (cause) {
+    fail(`tracebrief: cannot read report at ${path}: ${cause.message}`);
   }
 };
 
 const evaluate = (reportPath, bundlePath) => {
-  const { bundle, digest, bytes } = loadBundleFile(bundlePath);
-  const report = readJson(reportPath, "report");
-  const issues = [...validateBundle(bundle), ...validateReport(report)];
-  const structurallyValid = !issues.some((entry) => entry.level === "error");
-  const integrity = structurallyValid ? checkIntegrity(report, bundle) : [];
-  const all = [...issues, ...integrity];
+  const { bundle, digest, bytes } = readBundle(bundlePath);
+  const report = readReport(reportPath);
+  const structural = [...validateBundle(bundle), ...validateReport(report)];
+  // Integrity rules are defensive, so they always run: with --allow-invalid a
+  // structurally broken report must still have its citations checked, and the
+  // rendered document must be able to say so.
+  const integrity = checkIntegrity(report, bundle, { bundleDigest: digest });
+  const all = [...structural, ...integrity];
   return {
     report,
     bundle,
@@ -77,38 +119,59 @@ const evaluate = (reportPath, bundlePath) => {
 const printIssues = (issues) => {
   for (const entry of issues) {
     const where = entry.path ? ` (${entry.path})` : "";
-    process.stderr.write(`${entry.level === "error" ? "error" : "warning"} ${entry.code}${where}: ${entry.message}\n`);
+    process.stderr.write(
+      `${entry.level === "error" ? "error" : "warning"} ${entry.code}${where}: ${entry.message}\n`,
+    );
   }
 };
 
 const main = () => {
-  const { command, flags } = parseArgs(process.argv.slice(2));
-  if (!command || flags.help || command === "help") {
+  let parsed;
+  try {
+    parsed = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    if (error instanceof UsageError) failUsage(error.message);
+    throw error;
+  }
+  const { command, flags } = parsed;
+
+  if (flags.help || command === "help" || (!command && Object.keys(flags).length === 0)) {
     process.stdout.write(USAGE);
-    process.exit(command ? 0 : 2);
+    process.exit(command || flags.help ? 0 : 2);
   }
-  if (!flags.bundle) fail(`tracebrief: --bundle is required\n\n${USAGE}`);
-  if (command !== "index" && !flags.report) {
-    fail(`tracebrief: --report is required for "${command}"\n\n${USAGE}`);
+  if (!command) failUsage("no command given");
+  const spec = COMMANDS[command];
+  if (!spec) failUsage(`unknown command "${command}"`);
+
+  const unknown = Object.keys(flags).filter(
+    (name) => name !== "help" && !spec.flags.includes(name),
+  );
+  if (unknown.length > 0) {
+    failUsage(`unknown flag${unknown.length > 1 ? "s" : ""} for "${command}": ${unknown.map((n) => `--${n}`).join(", ")}`);
   }
+  if (!flags.bundle) failUsage(`--bundle is required for "${command}"`);
+  if (command !== "index" && !flags.report) failUsage(`--report is required for "${command}"`);
 
   if (command === "index") {
-    const { bundle } = loadBundleFile(flags.bundle);
+    const { bundle } = readBundle(flags.bundle);
     const issues = validateBundle(bundle);
     if (flags.json) {
-      process.stdout.write(
-        `${JSON.stringify({ records: bundle.records ?? [], issues }, null, 2)}\n`,
-      );
+      process.stdout.write(`${JSON.stringify({ records: bundle?.records ?? [], issues }, null, 2)}\n`);
     } else {
-      for (const record of [...(bundle.records ?? [])].sort((a, b) =>
-        a.evidence_id < b.evidence_id ? -1 : 1,
-      )) {
+      const records = (Array.isArray(bundle?.records) ? bundle.records : [])
+        .filter((record) => record && typeof record === "object")
+        .sort((a, b) => (String(a.evidence_id) < String(b.evidence_id) ? -1 : 1));
+      for (const record of records) {
         process.stdout.write(
           `${record.evidence_id}  ${record.operation}  ${record.confidence}/${record.authority}\n`,
         );
       }
     }
-    process.exit(issues.some((entry) => entry.level === "error") ? 1 : 0);
+    if (issues.some((entry) => entry.level === "error")) {
+      printIssues(issues.filter((entry) => entry.level === "error"));
+      process.exit(1);
+    }
+    process.exit(0);
   }
 
   if (command === "validate") {
@@ -137,34 +200,33 @@ const main = () => {
     process.exit(outcome.errorCount === 0 ? 0 : 1);
   }
 
-  if (command === "render") {
-    const outcome = evaluate(flags.report, flags.bundle);
-    if (outcome.errorCount > 0) {
-      process.stderr.write("tracebrief: refusing to render a report that failed validation.\n");
-      printIssues(outcome.issues.filter((entry) => entry.level === "error"));
-      if (!flags["allow-invalid"]) process.exit(1);
-      process.stderr.write("tracebrief: --allow-invalid given; rendering anyway.\n");
-    }
-    const markdown = renderMarkdown(outcome.report, outcome.bundle, {
-      bundleDigest: outcome.bundleDigest,
-    });
-    if (flags.out) {
-      try {
-        mkdirSync(dirname(resolve(flags.out)), { recursive: true });
-        writeFileSync(flags.out, markdown, "utf8");
-      } catch (cause) {
-        fail(`tracebrief: cannot write ${flags.out}: ${cause.message}`);
-      }
-      process.stderr.write(
-        `tracebrief: wrote ${flags.out}${outcome.errorCount > 0 ? " (invalid)" : ""}\n`,
-      );
-    } else {
-      process.stdout.write(markdown);
-    }
-    process.exit(outcome.errorCount === 0 ? 0 : 1);
+  // render
+  const outcome = evaluate(flags.report, flags.bundle);
+  if (outcome.errorCount > 0) {
+    process.stderr.write("tracebrief: refusing to render a report that failed validation.\n");
+    printIssues(outcome.issues.filter((entry) => entry.level === "error"));
+    if (!flags["allow-invalid"]) process.exit(1);
+    process.stderr.write("tracebrief: --allow-invalid given; rendering a draft anyway.\n");
   }
-
-  fail(`tracebrief: unknown command "${command}"\n\n${USAGE}`);
+  const markdown = renderMarkdown(outcome.report, outcome.bundle, {
+    bundleDigest: outcome.bundleDigest,
+    invalid: outcome.errorCount > 0,
+    issues: outcome.issues,
+  });
+  if (flags.out) {
+    try {
+      mkdirSync(dirname(resolve(flags.out)), { recursive: true });
+      writeFileSync(flags.out, markdown, "utf8");
+    } catch (cause) {
+      fail(`tracebrief: cannot write ${flags.out}: ${cause.message}`);
+    }
+    process.stderr.write(
+      `tracebrief: wrote ${flags.out}${outcome.errorCount > 0 ? " (invalid draft)" : ""}\n`,
+    );
+  } else {
+    process.stdout.write(markdown);
+  }
+  process.exit(outcome.errorCount === 0 ? 0 : 1);
 };
 
 main();
