@@ -94,8 +94,12 @@ exit 0.
 Try it against the committed real bundle:
 
 ```bash
-npm run validate:sample
+npm run validate:sample            # Electron feature trace
 npm run render:sample
+npm run validate:sample:unknowns   # residual unknowns
+npm run render:sample:unknowns
+npm run validate:sample:managed    # managed .NET assembly
+npm run render:sample:managed
 ```
 
 ## Report schema
@@ -284,15 +288,30 @@ Both samples are generated from real REA 6.0.0 output, not from synthetic data.
   result is order-independent. Before that fix, a stale `open` revision could
   make the tool demand that a report carry an already-closed question.
 
+**`reports/system-data-managed.md`** — a real managed assembly.
+
+- target: `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Data.dll`
+- evidence: `fixtures/system-data-bundle.json` (693 KB; 5 records — one
+  `inspect_managed_artifact` record for a mixed-mode CLR assembly plus the
+  residual-unknown registry records from the same session)
+- claims: `fixtures/report.system-data.json`
+- validates with 0 errors and **0 warnings**
+
+That third sample earned its place. It is a genuinely *mixed* bundle — one record
+with an artifact subject and four without — which is the only way to prove the
+subject rule means "no cited record has a subject" rather than "some cited record
+lacks one". It also exercises mixed location kinds on real data: a
+`file-offset-range` for the CLI header plus two single `file-offset` locations,
+all file-based with no memory addresses. REA classifies the assembly as managed
+with runtime family `mixed-clr-native`, because `COMIMAGE_FLAGS_ILONLY` is clear.
+
 It also demonstrates the tool working against its own author: two drafted claims
 in the first sample were rejected as unsupported assertions about the application
 until they were reclassified as `analysis-coverage`, which is what they were.
 
-Environment note: both samples are static analysis only. Hopper is macOS/Linux,
-and no Ghidra or IDA installation was configured here, so neither report makes a
-native claim. A managed PE (`inspect_managed_artifact`) was also exercised during
-development to cover a different record shape — `format: pe`, `file-offset`
-locations — and to confirm cross-artifact detection against a mixed bundle.
+Environment note: all three samples are static analysis only. Hopper is
+macOS/Linux, and no Ghidra or IDA installation was configured here, so no report
+makes a native claim.
 
 ## Limitations
 

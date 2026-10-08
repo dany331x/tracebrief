@@ -16,6 +16,8 @@
     "validate:sample": "node bin/tracebrief.mjs validate --report fixtures/report.clipnote.json --bundle fixtures/clipnote-bundle.json",
     "render:sample": "node bin/tracebrief.mjs render --report fixtures/report.clipnote.json --bundle fixtures/clipnote-bundle.json --out reports/clipnote-search.md",
     "validate:sample:unknowns": "node bin/tracebrief.mjs validate --report fixtures/report.clipnote-unknowns.json --bundle fixtures/clipnote-unknowns-bundle.json",
+    "validate:sample:managed": "node bin/tracebrief.mjs validate --report fixtures/report.system-data.json --bundle fixtures/system-data-bundle.json",
+    "render:sample:managed": "node bin/tracebrief.mjs render --report fixtures/report.system-data.json --bundle fixtures/system-data-bundle.json --out reports/system-data-managed.md",
     "render:sample:unknowns": "node bin/tracebrief.mjs render --report fixtures/report.clipnote-unknowns.json --bundle fixtures/clipnote-unknowns-bundle.json --out reports/clipnote-residual-unknowns.md",
     "install:command": "node scripts/install-command.mjs",
     "uninstall:command": "node scripts/install-command.mjs --uninstall"
