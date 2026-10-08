@@ -43,9 +43,31 @@ cd tracebrief
 npm test
 ```
 
-Use it as an OpenCode project command: `.opencode/commands/tracebrief.md`
-becomes `/tracebrief`. Copy it to `~/.config/opencode/commands/` to use it
-globally.
+Use it as an OpenCode command:
+
+```bash
+npm run install:command     # installs /tracebrief globally
+npm run uninstall:command
+```
+
+OpenCode discovers commands from `.opencode/commands/` in the project you are
+working in, or `~/.config/opencode/commands/` for global use. TraceBrief is
+normally used somewhere *other* than its own repository — in the project
+holding the target you are investigating — and the repo copy of the command
+invokes `node bin/tracebrief.mjs`, which only resolves inside this repository.
+The installer therefore rewrites that one invocation to an absolute path and
+copies the file to `~/.config/opencode/commands/tracebrief.md`. It refuses to
+overwrite an existing install unless you pass `--force`, is idempotent, and
+refuses to guess if the command file no longer contains the invocation it
+expects. Restart OpenCode afterwards.
+
+```bash
+node scripts/install-command.mjs --target <dir>   # install elsewhere
+node scripts/install-command.mjs --uninstall
+```
+
+The repository copy at `.opencode/commands/tracebrief.md` also works as-is when
+your cwd is this project.
 
 ## Usage
 
@@ -178,7 +200,7 @@ Document and bundle checks are separate, structural passes:
 
 ## What is verified, and what is not
 
-112 tests (`npm test`, `node --test`, zero dependencies), including a
+120 tests (`npm test`, `node --test`, zero dependencies), including a
 `test/regression.test.mjs` suite where each test corresponds to a real crash,
 bypass or silent failure reproduced before it was fixed — including a crash
 introduced by the hardening itself and caught by a second review pass:
@@ -207,6 +229,8 @@ introduced by the hardening itself and caught by a second review pass:
   and the evidence index alike
 - `--allow-invalid` still runs the integrity rules and stamps a visible banner
 - rendering is deterministic and never inlines `raw_result`
+- the command installer pins a CLI path that exists, is idempotent, refuses to
+  overwrite without `--force`, and preserves the command verbatim otherwise
 - the committed real REA bundle still validates after all of the above
 
 **Not verified, by design:** TraceBrief can prove a citation exists. It cannot
@@ -266,7 +290,8 @@ locations — and to confirm cross-artifact detection against a mixed bundle.
 ## Layout
 
 ```
-.opencode/commands/tracebrief.md   /tracebrief command
+.opencode/commands/tracebrief.md   /tracebrief command (repo copy)
+scripts/install-command.mjs        installs /tracebrief globally
 bin/tracebrief.mjs                 CLI: validate | render | index
 src/bundle.mjs                     Evidence bundle reading and structural checks
 src/report.mjs                     report.json schema validation

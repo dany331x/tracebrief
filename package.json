@@ -13,7 +13,9 @@
   "scripts": {
     "test": "node --test",
     "validate:sample": "node bin/tracebrief.mjs validate --report fixtures/report.clipnote.json --bundle fixtures/clipnote-bundle.json",
-    "render:sample": "node bin/tracebrief.mjs render --report fixtures/report.clipnote.json --bundle fixtures/clipnote-bundle.json --out reports/clipnote-search.md"
+    "render:sample": "node bin/tracebrief.mjs render --report fixtures/report.clipnote.json --bundle fixtures/clipnote-bundle.json --out reports/clipnote-search.md",
+    "install:command": "node scripts/install-command.mjs",
+    "uninstall:command": "node scripts/install-command.mjs --uninstall"
   },
   "keywords": [
     "reverse-engineering",
