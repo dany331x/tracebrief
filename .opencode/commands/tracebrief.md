@@ -14,13 +14,17 @@ the report Markdown yourself.
 ## Steps
 
 1. **Get the Evidence bundle.** If the session already investigated a target,
-   call the REA tool `export_evidence_bundle` with an **absolute** path — REA
-   rejects relative paths. On Windows use something like
-   `C:\Users\<you>\Desktop\TraceBrief\reports\evidence-bundle.json`; on
-   macOS/Linux `/absolute/path/to/TraceBrief/reports/evidence-bundle.json`.
-   Pass `overwrite: true` when replacing a file you created earlier. The parent
-   directory must already exist. If no investigation exists yet, stop and ask
-   which target to inspect — do not pick an example target on the user's behalf.
+   first make sure a `reports/` directory exists in the **current project** (REA
+   will not create parent directories), then call the REA tool
+   `export_evidence_bundle` with an **absolute** path that resolves inside this
+   project — REA rejects relative paths. Resolve it against your working
+   directory, not against the TraceBrief installation: on Windows something like
+   `C:\work\myapp\reports\evidence-bundle.json`, on macOS/Linux
+   `/work/myapp/reports/evidence-bundle.json`. Pass `overwrite: true` when
+   replacing a file you created earlier. Step 4 then refers to that same file as
+   `reports/evidence-bundle.json`, relative to the project root. If no
+   investigation exists yet, stop and ask which target to inspect — do not pick
+   an example target on the user's behalf.
 
 2. **Read the bundle, not your memory.** Inspect the exported file and use only
    what is in it. The `records` array is the only source of citations. For every
@@ -52,8 +56,11 @@ the report Markdown yourself.
    - Put every non-resolved bundle unknown in `open_questions` with its
      `unknown_id`.
    - Set `target.artifact_digest` from `bundle.artifacts`; omitting it disables
-     cross-artifact verification and produces a warning. Optionally set
-     `bundle_digest` to pin the report to this exact bundle.
+     cross-artifact verification and produces a warning. Set `bundle_digest` to
+     the sha256 of the exported bundle file (compute it with
+     `sha256sum reports/evidence-bundle.json`, or PowerShell
+     `(Get-FileHash reports/evidence-bundle.json -Algorithm SHA256).Hash.ToLower()`).
+     An explicit `null` is rejected; omit the field if you cannot pin it.
    - Use `null` for unknown `target.version` / `format` / `architecture` /
      `local_path`, and `[]` for unknown lists. `target.name` must be a
      non-empty string and `reproduction.environment` must be an array — `null`
