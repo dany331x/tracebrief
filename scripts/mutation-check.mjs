@@ -231,13 +231,15 @@ const MUTATIONS = [
 /**
  * Run the suite in a scratch copy.
  *
- * `node --test` with no path argument discovers test files; passing "test/" as a
- * path does not work on Windows and fails before a single test runs, which
- * would make every mutation look "caught". The baseline run below proves the
- * invocation is sound before any result is trusted.
+ * The glob is expanded by Node itself, for two reasons. Passing "test/" as a
+ * path does not work on Windows and fails before a single test runs, which would
+ * make every mutation look "caught". And bare `node --test` treats *any* file
+ * under `test/` as a test file, so the shared `test/helpers.mjs` module would be
+ * counted as an empty suite. The baseline run below proves the invocation is
+ * sound before any result is trusted.
  */
 const runSuite = (dir) =>
-  spawnSync(process.execPath, ["--test"], { cwd: dir, encoding: "utf8", shell: false });
+  spawnSync(process.execPath, ["--test", "test/*.test.mjs"], { cwd: dir, encoding: "utf8", shell: false });
 
 const copyRepo = (dir) =>
   cpSync(REPO_ROOT, dir, {

@@ -225,8 +225,11 @@ Document and bundle checks are separate, structural passes:
 
 ## What is verified, and what is not
 
-179 tests (`npm test`, `node --test`, zero dependencies). Several of those files
-exist specifically to close gaps an audit found in this suite:
+179 tests (`npm test`, zero dependencies). `npm test` runs
+`node --test "test/*.test.mjs"`; the glob is deliberate, because bare
+`node --test` also treats the shared `test/helpers.mjs` module as a test file
+and reports a phantom 180th empty suite. Several of those files exist
+specifically to close gaps an audit found in this suite:
 
 - `test/regression.test.mjs` — one test per real crash, bypass or silent failure
   reproduced before it was fixed, including a crash the hardening itself

@@ -11,7 +11,7 @@
     "tracebrief": "bin/tracebrief.mjs"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "node --test \"test/*.test.mjs\"",
     "test:mutations": "node scripts/mutation-check.mjs",
     "validate:sample": "node bin/tracebrief.mjs validate --report fixtures/report.clipnote.json --bundle fixtures/clipnote-bundle.json",
     "render:sample": "node bin/tracebrief.mjs render --report fixtures/report.clipnote.json --bundle fixtures/clipnote-bundle.json --out reports/clipnote-search.md",
