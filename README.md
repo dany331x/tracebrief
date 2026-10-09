@@ -35,10 +35,23 @@ citations and renders the document. A prompt alone cannot verify that
 TraceBrief itself has **zero dependencies** (no `dependencies` or
 `devDependencies`; nothing to install).
 
+## Upstream status
+
+TraceBrief is standalone. Integration into
+[REA](https://github.com/morluto/rea) has been proposed in
+[morluto/rea#1142](https://github.com/morluto/rea/issues/1142), which asks which
+integration shape is worth carrying rather than presenting a finished patch —
+REA's `CONTRIBUTING.md` asks for an issue before an architecture change of this
+size, and TraceBrief does not yet meet REA's toolchain gates (it is plain
+`.mjs` under `node --test`, not TypeScript under `vitest`).
+
+Nothing here depends on that outcome. If REA declines it, this repository is
+the deliverable as-is.
+
 ## Install
 
 ```bash
-git clone <this repo> tracebrief
+git clone https://github.com/dany331x/tracebrief.git
 cd tracebrief
 npm test
 ```
